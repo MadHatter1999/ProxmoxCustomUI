@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { api, apiElevated, AuthError } from '../api'
+import { apiElevated, AuthError } from '../api'
 import type { ClusterResource, IsoVolume } from '../types'
 import { place, SIZES, type SizePreset } from '../placement'
 
@@ -70,7 +70,7 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
     let stop = false
     Promise.all(
       isoStorages.map(s =>
-        apiElevated<IsoVolume[]>(`/nodes/${s.node}/storage/${s.storage}/content`, { content: 'iso' })
+        apiElevated<IsoVolume[]>(`/nodes/${s.node}/storage/${s.storage}/content`, { params: { content: 'iso' } })
           .then(list => ({ node: s.node, list }))
           .catch(() => ({ node: s.node, list: [] as IsoVolume[] }))
       )
@@ -105,12 +105,12 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
     })}`
 
     try {
-      const vmid = await api<string>('/cluster/nextid')
+      const vmid = await apiElevated<string>('/cluster/nextid')
 
       if (image.startsWith('tpl:')) {
         const tpl = templates.find(t => `tpl:${t.vmid}` === image)
         if (!tpl) throw new Error('Pick an image')
-        const upid = await api<string>(`/nodes/${tpl.node}/qemu/${tpl.vmid}/clone`, {
+        const upid = await apiElevated<string>(`/nodes/${tpl.node}/qemu/${tpl.vmid}/clone`, {
           method: 'POST',
           params: {
             newid: vmid,
@@ -122,7 +122,7 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
         })
         // Right-size it and stash the login; cloud-init creds apply when the
         // template supports them, and the machine boots ready to use.
-        await api(`/nodes/${node}/qemu/${vmid}/config`, {
+        await apiElevated(`/nodes/${node}/qemu/${vmid}/config`, {
           method: 'POST',
           params: {
             cores: size.cores,
@@ -160,7 +160,7 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
           params.net0 = 'virtio,bridge=vmbr0,firewall=1'
           params.boot = 'order=scsi0;ide2;net0'
         }
-        const upid = await api<string>(`/nodes/${node}/qemu`, { method: 'POST', params })
+        const upid = await apiElevated<string>(`/nodes/${node}/qemu`, { method: 'POST', params })
         onTask(upid, node, `Spinning up ${name}`)
       }
     } catch (err) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, apiElevated, AuthError, type Session } from '../api'
+import { apiElevated, AuthError, type Session } from '../api'
 import type { ClusterResource, TrackedTask } from '../types'
 import { capacityLine } from '../placement'
 import MachineCard from './MachineCard'
@@ -57,7 +57,7 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
   async function vmAction(vm: ClusterResource, action: 'start' | 'shutdown' | 'stop') {
     if (action === 'stop' && !confirm(`Force ${vm.name} off? Only do this if it's frozen - it's like yanking the power cord.`)) return
     try {
-      const upid = await api<string>(`/nodes/${vm.node}/qemu/${vm.vmid}/status/${action}`, { method: 'POST' })
+      const upid = await apiElevated<string>(`/nodes/${vm.node}/qemu/${vm.vmid}/status/${action}`, { method: 'POST' })
       track(upid, vm.node!, `${action === 'start' ? 'Starting' : action === 'shutdown' ? 'Turning off' : 'Force-stopping'} ${vm.name}`)
     } catch (err) {
       if (err instanceof AuthError) { onLogout(); return }

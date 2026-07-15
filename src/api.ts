@@ -85,21 +85,39 @@ export async function api<T>(path: string, opts: { method?: string; params?: Par
 
 /**
  * Same shape as api(), but routed through the server's elevated /svc/pve
- * proxy (root's API token) instead of the caller's own session. GET-only -
- * read-only cluster state (VM list, storage) that a scoped tech login often
- * can't audit directly. Writes (start/stop/snapshot/clone) stay on api()
- * and the caller's own account, so who-did-what is still traceable.
+ * proxy (root's API token) instead of the caller's own session. Techs get a
+ * scoped role that can't reliably see or do everything the app needs, so
+ * every VM action from the app - reads and writes alike - runs as root
+ * server-side; Proxmox's own per-account permissions stop mattering for
+ * anyone going through the app.
  */
-export async function apiElevated<T>(path: string, params: Params = {}): Promise<T> {
-  const q = encodeParams(params).toString()
-  const r = await fetch(`/svc/pve${path}${q ? `?${q}` : ''}`)
+export async function apiElevated<T>(path: string, opts: { method?: string; params?: Params } = {}): Promise<T> {
+  const method = opts.method ?? 'GET'
+  const encoded = encodeParams(opts.params ?? {})
+  let url = `/svc/pve${path}`
+  const init: RequestInit = { method }
+  if (method === 'GET' || method === 'HEAD') {
+    const q = encoded.toString()
+    if (q) url += `?${q}`
+  } else {
+    init.headers = { 'Content-Type': 'application/x-www-form-urlencoded' }
+    init.body = encoded
+  }
+  const r = await fetch(url, init)
   if (r.status === 401) {
     clearSession()
     throw new AuthError()
   }
   if (!r.ok) {
-    const j = await r.json().catch(() => ({}))
-    throw new Error(j.message ?? `HTTP ${r.status}`)
+    let msg = `HTTP ${r.status}`
+    try {
+      const j = await r.json()
+      if (j.errors) msg += ' - ' + Object.entries(j.errors).map(([k, v]) => `${k}: ${v}`).join('; ')
+      else if (typeof j.message === 'string') msg += ' - ' + j.message.trim()
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(msg)
   }
   return (await r.json()).data as T
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api } from '../api'
+import { apiElevated } from '../api'
 import type { ClusterResource } from '../types'
 import { PVE_GUI } from '../placement'
 import { downloadRdp } from '../rdp'
@@ -31,7 +31,7 @@ interface AgentIface {
 
 async function fetchIp(node: string, vmid: number): Promise<string | null> {
   try {
-    const res = await api<{ result: AgentIface[] }>(`/nodes/${node}/qemu/${vmid}/agent/network-get-interfaces`)
+    const res = await apiElevated<{ result: AgentIface[] }>(`/nodes/${node}/qemu/${vmid}/agent/network-get-interfaces`)
     for (const iface of res.result ?? []) {
       if (iface.name.toLowerCase().startsWith('lo')) continue
       for (const a of iface['ip-addresses'] ?? []) {
@@ -77,7 +77,7 @@ export default function MachineCard({ vm, onAction, onTask }: {
   useEffect(() => {
     let stop = false
     if (vm.node && vm.vmid) {
-      api<{ description?: string }>(`/nodes/${vm.node}/qemu/${vm.vmid}/config`)
+      apiElevated<{ description?: string }>(`/nodes/${vm.node}/qemu/${vm.vmid}/config`)
         .then(cfg => { if (!stop) setMeta(parseMeta(cfg.description)) })
         .catch(() => {})
     }
@@ -85,7 +85,7 @@ export default function MachineCard({ vm, onAction, onTask }: {
   }, [vm.node, vm.vmid])
 
   const loadSnaps = useCallback(() => {
-    api<Snapshot[]>(`/nodes/${vm.node}/qemu/${vm.vmid}/snapshot`)
+    apiElevated<Snapshot[]>(`/nodes/${vm.node}/qemu/${vm.vmid}/snapshot`)
       .then(list =>
         setSnaps(
           list
@@ -104,7 +104,7 @@ export default function MachineCard({ vm, onAction, onTask }: {
     const name = snapName.trim()
     if (!name) return
     try {
-      const upid = await api<string>(`/nodes/${vm.node}/qemu/${vm.vmid}/snapshot`, {
+      const upid = await apiElevated<string>(`/nodes/${vm.node}/qemu/${vm.vmid}/snapshot`, {
         method: 'POST',
         params: { snapname: name, description: `via The Proxbox (${new Date().toISOString().slice(0, 10)})` }
       })
@@ -119,7 +119,7 @@ export default function MachineCard({ vm, onAction, onTask }: {
   async function rollbackSnap(name: string) {
     if (!confirm(`Roll ${vm.name} back to "${name}"?\n\nEverything done on it since that snapshot is thrown away, and the machine restarts from that point.`)) return
     try {
-      const upid = await api<string>(`/nodes/${vm.node}/qemu/${vm.vmid}/snapshot/${encodeURIComponent(name)}/rollback`, {
+      const upid = await apiElevated<string>(`/nodes/${vm.node}/qemu/${vm.vmid}/snapshot/${encodeURIComponent(name)}/rollback`, {
         method: 'POST'
       })
       onTask(upid, vm.node!, `Rolling ${vm.name} back to "${name}"`)
@@ -131,7 +131,7 @@ export default function MachineCard({ vm, onAction, onTask }: {
   async function deleteSnap(name: string) {
     if (!confirm(`Delete snapshot "${name}" of ${vm.name}? The machine itself is not touched - you just lose this restore point.`)) return
     try {
-      const upid = await api<string>(`/nodes/${vm.node}/qemu/${vm.vmid}/snapshot/${encodeURIComponent(name)}`, {
+      const upid = await apiElevated<string>(`/nodes/${vm.node}/qemu/${vm.vmid}/snapshot/${encodeURIComponent(name)}`, {
         method: 'DELETE'
       })
       onTask(upid, vm.node!, `Deleting snapshot "${name}" of ${vm.name}`)
@@ -155,12 +155,12 @@ export default function MachineCard({ vm, onAction, onTask }: {
       `Enable-NetFirewallRule -DisplayGroup 'Remote Desktop';` +
       `Write-Output RDP-READY`
     try {
-      const r = await api<{ pid: number }>(`/nodes/${vm.node}/qemu/${vm.vmid}/agent/exec`, {
+      const r = await apiElevated<{ pid: number }>(`/nodes/${vm.node}/qemu/${vm.vmid}/agent/exec`, {
         method: 'POST',
         params: { command: ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script] }
       })
       await new Promise(res => setTimeout(res, 4000))
-      const st = await api<{ exited: number; 'out-data'?: string; 'err-data'?: string }>(
+      const st = await apiElevated<{ exited: number; 'out-data'?: string; 'err-data'?: string }>(
         `/nodes/${vm.node}/qemu/${vm.vmid}/agent/exec-status`,
         { params: { pid: r.pid } }
       )

@@ -42,14 +42,41 @@ async function isSignedIn(cookieHeader: string | undefined): Promise<boolean> {
   }
 }
 
+function readRawBody(req: express.Request): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    req.on('data', chunk => chunks.push(chunk))
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('error', reject)
+  })
+}
+
 /**
- * Fetches an /api2/json path as root instead of the caller's own session.
- * Tech logins get a scoped role (VM.Audit/PowerMgmt/etc via PVEVMAdmin) that
- * doesn't reliably surface node/storage-level reads across the cluster in
- * /cluster/resources, and definitely doesn't include Datastore permissions -
- * so anything read-only that a tech needs to see goes through here instead of
- * their own cookie, exactly like the upload path already did.
+ * Calls an /api2/json path as root instead of the caller's own session. Tech
+ * logins get PVEVMAdmin, which covers VM lifecycle actions but not Datastore
+ * rights and doesn't reliably surface node/storage entries in
+ * /cluster/resources either - Tony's call was "idc, run it as root": every
+ * VM action from a tech goes through here now, not just uploads. Same method
+ * and body as the original request; only the auth header changes.
  */
+async function elevatedCall(req: express.Request, pveJsonPath: string): Promise<{ status: number; text: string }> {
+  if (!ROOT_TOKEN) throw new Error('Server has no PVE_ROOT_TOKEN configured - ask Tony to set one up')
+  const init: RequestInit = {
+    method: req.method,
+    headers: { Authorization: `PVEAPIToken=${ROOT_TOKEN}` }
+  }
+  if (!['GET', 'HEAD'].includes(req.method)) {
+    const body = await readRawBody(req)
+    if (body.length) {
+      init.body = new Uint8Array(body)
+      ;(init.headers as Record<string, string>)['content-type'] =
+        req.headers['content-type'] ?? 'application/x-www-form-urlencoded'
+    }
+  }
+  const r = await fetch(`${PVE_HOST}${pveJsonPath}`, init)
+  return { status: r.status, text: await r.text() }
+}
+
 async function elevatedGet(pveJsonPath: string): Promise<unknown> {
   if (!ROOT_TOKEN) throw new Error('Server has no PVE_ROOT_TOKEN configured - ask Tony to set one up')
   const r = await fetch(`${PVE_HOST}${pveJsonPath}`, {
@@ -88,18 +115,18 @@ async function fetchIsoTargetAsRoot(): Promise<IsoTarget | null> {
   return pickIsoTarget(data)
 }
 
-// Elevated read path: any signed-in user (root or a scoped tech login) sees
-// the same cluster state - VM list, storage - regardless of what their own
-// Proxmox account is permitted to audit directly. Techs only ever reach this
-// through the app, so there's no meaningful loss of access control: it's
-// read-only, and every write (start/stop/snapshot/clone) still runs under
-// the caller's own session further down in the /api2 proxy.
-app.get('/svc/pve/*', async (req, res) => {
+// Elevated path for everything: any signed-in user (root or a scoped tech
+// login) reads and mutates cluster state - VM list, storage, start/stop,
+// snapshots, VM creation - under root's API token rather than their own.
+// Techs only ever reach this through the app (gated by isSignedIn below), so
+// this is a deliberate simplification, not a leak: Proxmox's own per-role
+// permission model stops mattering for anyone using the app as intended.
+app.all('/svc/pve/*', async (req, res) => {
   if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
   const upstreamPath = req.originalUrl.replace(/^\/svc\/pve/, '/api2/json')
   try {
-    const data = await elevatedGet(upstreamPath)
-    res.json({ data })
+    const { status, text } = await elevatedCall(req, upstreamPath)
+    res.status(status).type('application/json').send(text)
   } catch (err) {
     res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
   }
