@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { api, AuthError } from '../api'
+import { api, apiElevated, AuthError } from '../api'
 import type { ClusterResource, IsoVolume } from '../types'
 import { place, SIZES, type SizePreset } from '../placement'
 
@@ -70,7 +70,7 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
     let stop = false
     Promise.all(
       isoStorages.map(s =>
-        api<IsoVolume[]>(`/nodes/${s.node}/storage/${s.storage}/content`, { params: { content: 'iso' } })
+        apiElevated<IsoVolume[]>(`/nodes/${s.node}/storage/${s.storage}/content`, { content: 'iso' })
           .then(list => ({ node: s.node, list }))
           .catch(() => ({ node: s.node, list: [] as IsoVolume[] }))
       )

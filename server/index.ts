@@ -42,6 +42,23 @@ async function isSignedIn(cookieHeader: string | undefined): Promise<boolean> {
   }
 }
 
+/**
+ * Fetches an /api2/json path as root instead of the caller's own session.
+ * Tech logins get a scoped role (VM.Audit/PowerMgmt/etc via PVEVMAdmin) that
+ * doesn't reliably surface node/storage-level reads across the cluster in
+ * /cluster/resources, and definitely doesn't include Datastore permissions -
+ * so anything read-only that a tech needs to see goes through here instead of
+ * their own cookie, exactly like the upload path already did.
+ */
+async function elevatedGet(pveJsonPath: string): Promise<unknown> {
+  if (!ROOT_TOKEN) throw new Error('Server has no PVE_ROOT_TOKEN configured - ask Tony to set one up')
+  const r = await fetch(`${PVE_HOST}${pveJsonPath}`, {
+    headers: { Authorization: `PVEAPIToken=${ROOT_TOKEN}` }
+  })
+  if (!r.ok) throw new Error(`Couldn't reach the cluster (HTTP ${r.status})`)
+  return (await r.json()).data
+}
+
 interface IsoTarget {
   node: string
   storage: string
@@ -67,19 +84,30 @@ function pickIsoTarget(resources: Array<Record<string, unknown>>): IsoTarget | n
 }
 
 async function fetchIsoTargetAsRoot(): Promise<IsoTarget | null> {
-  if (!ROOT_TOKEN) throw new Error('Server has no PVE_ROOT_TOKEN configured - ask Tony to set one up')
-  const r = await fetch(`${PVE_HOST}/api2/json/cluster/resources`, {
-    headers: { Authorization: `PVEAPIToken=${ROOT_TOKEN}` }
-  })
-  if (!r.ok) throw new Error(`Couldn't reach the cluster (HTTP ${r.status})`)
-  const { data } = (await r.json()) as { data: Array<Record<string, unknown>> }
+  const data = (await elevatedGet('/api2/json/cluster/resources')) as Array<Record<string, unknown>>
   return pickIsoTarget(data)
 }
 
-// Elevated image-upload path: any signed-in user (root or a scoped tech
-// login) can see where uploads land and upload files, even though their own
-// account may not have Datastore permissions - the actual write happens
-// under root's API token instead of their session.
+// Elevated read path: any signed-in user (root or a scoped tech login) sees
+// the same cluster state - VM list, storage - regardless of what their own
+// Proxmox account is permitted to audit directly. Techs only ever reach this
+// through the app, so there's no meaningful loss of access control: it's
+// read-only, and every write (start/stop/snapshot/clone) still runs under
+// the caller's own session further down in the /api2 proxy.
+app.get('/svc/pve/*', async (req, res) => {
+  if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
+  const upstreamPath = req.originalUrl.replace(/^\/svc\/pve/, '/api2/json')
+  try {
+    const data = await elevatedGet(upstreamPath)
+    res.json({ data })
+  } catch (err) {
+    res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+// Elevated image-upload path: same reasoning as above, but for the write
+// itself - the actual disk write happens under root's API token instead of
+// the tech's own session, since PVEVMAdmin never includes Datastore rights.
 app.get('/svc/iso-target', async (req, res) => {
   if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
   try {

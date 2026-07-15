@@ -83,6 +83,27 @@ export async function api<T>(path: string, opts: { method?: string; params?: Par
   return (await r.json()).data as T
 }
 
+/**
+ * Same shape as api(), but routed through the server's elevated /svc/pve
+ * proxy (root's API token) instead of the caller's own session. GET-only -
+ * read-only cluster state (VM list, storage) that a scoped tech login often
+ * can't audit directly. Writes (start/stop/snapshot/clone) stay on api()
+ * and the caller's own account, so who-did-what is still traceable.
+ */
+export async function apiElevated<T>(path: string, params: Params = {}): Promise<T> {
+  const q = encodeParams(params).toString()
+  const r = await fetch(`/svc/pve${path}${q ? `?${q}` : ''}`)
+  if (r.status === 401) {
+    clearSession()
+    throw new AuthError()
+  }
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}))
+    throw new Error(j.message ?? `HTTP ${r.status}`)
+  }
+  return (await r.json()).data as T
+}
+
 export interface IsoTargetInfo {
   node: string
   storage: string

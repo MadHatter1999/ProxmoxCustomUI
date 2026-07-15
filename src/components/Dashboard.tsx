@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, AuthError, type Session } from '../api'
+import { api, apiElevated, AuthError, type Session } from '../api'
 import type { ClusterResource, TrackedTask } from '../types'
 import { capacityLine } from '../placement'
 import MachineCard from './MachineCard'
@@ -26,7 +26,7 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
     let stop = false
     async function load() {
       try {
-        const data = await api<ClusterResource[]>('/cluster/resources')
+        const data = await apiElevated<ClusterResource[]>('/cluster/resources')
         if (!stop) { setResources(data); setError('') }
       } catch (err) {
         if (err instanceof AuthError) { onLogout(); return }
