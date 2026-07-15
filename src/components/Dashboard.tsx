@@ -4,12 +4,19 @@ import type { ClusterResource, TrackedTask } from '../types'
 import { capacityLine } from '../placement'
 import MachineCard from './MachineCard'
 import NewMachine from './NewMachine'
+import NodesPanel from './NodesPanel'
 import TaskLog from './TaskLog'
+import TechsPage from './TechsPage'
+import UploadIso from './UploadIso'
 
 export default function Dashboard({ session, onLogout }: { session: Session; onLogout: () => void }) {
+  const isRoot = session.username === 'root@pam'
   const [resources, setResources] = useState<ClusterResource[]>([])
   const [error, setError] = useState('')
   const [showNew, setShowNew] = useState(false)
+  const [showTechs, setShowTechs] = useState(false)
+  const [showNodes, setShowNodes] = useState(false)
+  const [showUpload, setShowUpload] = useState(false)
   const [tasks, setTasks] = useState<TrackedTask[]>([])
   const [refreshTick, setRefreshTick] = useState(0)
 
@@ -67,6 +74,9 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
         </div>
         <div className="topbar-actions">
           <button className="primary" onClick={() => setShowNew(true)}>+ New machine</button>
+          <button onClick={() => setShowUpload(true)}>Upload ISO</button>
+          {isRoot && <button onClick={() => setShowNodes(true)}>Nodes</button>}
+          {isRoot && <button onClick={() => setShowTechs(true)}>Techs</button>}
           <span className="muted">{session.username}</span>
           <button className="ghost" onClick={onLogout}>Sign out</button>
         </div>
@@ -105,6 +115,19 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
           username={session.username}
           onClose={() => setShowNew(false)}
           onTask={(upid, node, label) => { track(upid, node, label); setShowNew(false) }}
+          onAuthError={onLogout}
+        />
+      )}
+
+      {showTechs && isRoot && <TechsPage onClose={() => setShowTechs(false)} />}
+
+      {showNodes && isRoot && <NodesPanel resources={resources} onClose={() => setShowNodes(false)} />}
+
+      {showUpload && (
+        <UploadIso
+          resources={resources}
+          onClose={() => setShowUpload(false)}
+          onTask={(upid, node, label) => { track(upid, node, label); setShowUpload(false) }}
           onAuthError={onLogout}
         />
       )}

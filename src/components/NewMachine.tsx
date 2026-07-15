@@ -18,14 +18,29 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
   const [name, setName] = useState('')
   const [image, setImage] = useState('')
   const [sizeId, setSizeId] = useState('M')
+  const [custom, setCustom] = useState(false)
+  const [cCores, setCCores] = useState(4)
+  const [cRam, setCRam] = useState(8)
+  const [cDisk, setCDisk] = useState(120)
   const [vmUser, setVmUser] = useState('')
   const [vmPass, setVmPass] = useState('')
   const [isos, setIsos] = useState<IsoVolume[]>([])
+  const [isoNodes, setIsoNodes] = useState<Record<string, string[]>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const size: SizePreset = SIZES.find(s => s.id === sizeId) ?? SIZES[1]
-  const placement = useMemo(() => place(resources, size), [resources, size])
+  const size: SizePreset = custom
+    ? { id: 'Custom', label: 'Custom', cores: cCores, memGb: cRam, diskGb: cDisk }
+    : SIZES.find(s => s.id === sizeId) ?? SIZES[1]
+
+  // An ISO can only boot on a node that actually sees it in an image folder;
+  // the app mediates that - the tech never has to know or care.
+  const allowedNodes = useMemo(() => {
+    if (!image || image.startsWith('tpl:')) return undefined
+    return isoNodes[image] ?? []
+  }, [image, isoNodes])
+
+  const placement = useMemo(() => place(resources, size, allowedNodes), [resources, size, allowedNodes])
 
   // Templates are "ready to use" images; the shared img folder supplies installers.
   const templates = useMemo(
@@ -33,19 +48,47 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
     [resources]
   )
 
+  // Ask EVERY node with an iso-capable storage what it can see, and remember
+  // which nodes see which image. Re-runs only when the storage layout changes,
+  // not on every 5s resource poll.
+  const isoStorageKey = useMemo(
+    () =>
+      resources
+        .filter(r => r.type === 'storage' && (r.content ?? '').includes('iso') && r.node)
+        .map(r => r.id)
+        .sort()
+        .join(','),
+    [resources]
+  )
+
   useEffect(() => {
-    // The shared img folder is visible from every node that mounts it - ask the
-    // first node that reports an iso-capable storage.
-    const isoStorage = resources.find(r => r.type === 'storage' && (r.content ?? '').includes('iso'))
-    if (!isoStorage) return
-    let stop = false
-    api<IsoVolume[]>(`/nodes/${isoStorage.node}/storage/${isoStorage.storage}/content`, {
-      params: { content: 'iso' }
+    if (!isoStorageKey) return
+    const isoStorages = isoStorageKey.split(',').map(id => {
+      const [, node, storage] = id.split('/')
+      return { node, storage }
     })
-      .then(list => { if (!stop) setIsos(list.sort((a, b) => a.volid.localeCompare(b.volid))) })
-      .catch(() => {})
+    let stop = false
+    Promise.all(
+      isoStorages.map(s =>
+        api<IsoVolume[]>(`/nodes/${s.node}/storage/${s.storage}/content`, { params: { content: 'iso' } })
+          .then(list => ({ node: s.node, list }))
+          .catch(() => ({ node: s.node, list: [] as IsoVolume[] }))
+      )
+    ).then(results => {
+      if (stop) return
+      const nodesFor: Record<string, string[]> = {}
+      const seen = new Map<string, IsoVolume>()
+      for (const { node, list } of results) {
+        for (const v of list) {
+          ;(nodesFor[v.volid] ??= []).push(node)
+          if (!seen.has(v.volid)) seen.set(v.volid, v)
+        }
+      }
+      setIsoNodes(nodesFor)
+      setIsos([...seen.values()].sort((a, b) => a.volid.localeCompare(b.volid)))
+    })
     return () => { stop = true }
-  }, [resources])
+  }, [isoStorageKey])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -176,12 +219,35 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
               <input
                 type="radio"
                 name="size"
-                checked={sizeId === s.id}
-                onChange={() => setSizeId(s.id)}
+                checked={!custom && sizeId === s.id}
+                onChange={() => { setCustom(false); setSizeId(s.id) }}
               />
               {s.label}
             </label>
           ))}
+          <label className="size-row">
+            <input type="radio" name="size" checked={custom} onChange={() => setCustom(true)} />
+            Custom - pick exactly what you need
+          </label>
+          {custom && (
+            <div className="custom-size grid2">
+              <label>
+                CPU cores
+                <input type="number" min={1} max={32} value={cCores}
+                  onChange={e => setCCores(Math.max(1, Number(e.target.value)))} />
+              </label>
+              <label>
+                RAM (GB)
+                <input type="number" min={1} max={128} value={cRam}
+                  onChange={e => setCRam(Math.max(1, Number(e.target.value)))} />
+              </label>
+              <label>
+                Disk (GB)
+                <input type="number" min={8} max={4096} value={cDisk}
+                  onChange={e => setCDisk(Math.max(8, Number(e.target.value)))} />
+              </label>
+            </div>
+          )}
         </fieldset>
 
         <div className="grid2">

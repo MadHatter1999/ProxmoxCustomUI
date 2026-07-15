@@ -197,6 +197,53 @@ button.small { padding: 5px 12px; font-size: 0.78rem; }
 .snap-row .muted { font-size: 0.72rem; }
 .snap-spacer { flex: 1; }
 
+/* ---------- techs page ---------- */
+.tech-form { align-items: end; }
+.tech-form-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+.tech-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 2px; font-size: 0.9rem;
+  border-bottom: 1px solid var(--edge);
+}
+.tech-row:last-child { border-bottom: none; }
+.good-note { color: var(--good); font-size: 0.88rem; }
+
+/* custom size inputs */
+.custom-size { margin-top: 8px; grid-template-columns: 1fr 1fr 1fr; }
+@media (max-width: 500px) { .custom-size { grid-template-columns: 1fr; } }
+
+/* ---------- nodes panel ---------- */
+.modal-wide { width: min(920px, 100%); }
+.panel-subhead {
+  font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em;
+  margin: 8px 4px 0;
+}
+.node-down { border-color: rgba(255, 93, 93, 0.4); }
+.node-meter { display: grid; grid-template-columns: 38px 1fr auto; align-items: center; gap: 8px; margin: 7px 0; }
+.node-meter-label { color: var(--muted); font-size: 0.74rem; }
+.node-meter-value { font-size: 0.78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.meter { height: 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.meter-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+.meter-fill.good { background: var(--good); }
+.meter-fill.warning { background: var(--warning); }
+.meter-fill.critical { background: var(--critical); }
+
+/* ---------- upload ---------- */
+.upload-progress {
+  position: relative;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--edge);
+  overflow: hidden;
+}
+.upload-progress-fill { height: 100%; background: var(--grad); transition: width 0.2s ease; }
+.upload-progress-label {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  font-size: 0.75rem; font-weight: 700;
+}
+
 /* ---------- login ---------- */
 .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .login-card {

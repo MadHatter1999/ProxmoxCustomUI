@@ -82,3 +82,52 @@ export async function api<T>(path: string, opts: { method?: string; params?: Par
   }
   return (await r.json()).data as T
 }
+
+/**
+ * Uploads a file straight to a Proxmox storage's content dir (e.g. an ISO into
+ * /var/lib/vz/template/iso). Uses XHR instead of fetch so we get upload
+ * progress - these are multi-GB files on a LAN, and a silent multi-minute
+ * wait reads as broken.
+ */
+export function uploadFile(
+  node: string,
+  storage: string,
+  content: string,
+  file: File,
+  onProgress: (pct: number) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `/api2/json/nodes/${node}/storage/${storage}/upload`)
+    xhr.setRequestHeader('CSRFPreventionToken', csrfToken)
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.onload = () => {
+      if (xhr.status === 401) {
+        clearSession()
+        reject(new AuthError())
+        return
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText).data as string)
+        } catch {
+          reject(new Error('Upload finished but the server sent back something unexpected'))
+        }
+      } else {
+        let msg = `Upload failed (HTTP ${xhr.status})`
+        try {
+          const j = JSON.parse(xhr.responseText)
+          if (typeof j.message === 'string') msg += ' - ' + j.message.trim()
+        } catch { /* non-JSON error body */ }
+        reject(new Error(msg))
+      }
+    }
+    xhr.onerror = () => reject(new Error('Upload failed - connection dropped'))
+    const form = new FormData()
+    form.append('content', content)
+    form.append('filename', file)
+    xhr.send(form)
+  })
+}

@@ -14,70 +14,11 @@ export interface SizePreset {
 }
 
 export const SIZES: SizePreset[] = [
-  {
-    id: 'XXS',
-    label: 'XXSmall · 1 vCPU · 1 GB RAM · 30 GB Disk',
-    cores: 1,
-    memGb: 1,
-    diskGb: 30
-  },
-  {
-    id: 'XS',
-    label: 'XSmall · 1 vCPU · 2 GB RAM · 60 GB Disk',
-    cores: 1,
-    memGb: 2,
-    diskGb: 60
-  },
-  {
-    id: 'S',
-    label: 'Small · 2 vCPU · 4 GB RAM · 60 GB Disk',
-    cores: 2,
-    memGb: 4,
-    diskGb: 60
-  },
-  {
-    id: 'M',
-    label: 'Medium · 4 vCPU · 8 GB RAM · 120 GB Disk',
-    cores: 4,
-    memGb: 8,
-    diskGb: 120
-  },
-  {
-    id: 'L',
-    label: 'Large · 8 vCPU · 16 GB RAM · 250 GB Disk',
-    cores: 8,
-    memGb: 16,
-    diskGb: 250
-  },
-  {
-    id: 'XL',
-    label: 'XLarge · 12 vCPU · 24 GB RAM · 375 GB Disk',
-    cores: 12,
-    memGb: 24,
-    diskGb: 375
-  },
-  {
-    id: '2XL',
-    label: '2XLarge · 16 vCPU · 32 GB RAM · 500 GB Disk',
-    cores: 16,
-    memGb: 32,
-    diskGb: 500
-  },
-  {
-    id: '3XL',
-    label: '3XLarge · 24 vCPU · 48 GB RAM · 750 GB Disk',
-    cores: 24,
-    memGb: 48,
-    diskGb: 750
-  },
-  {
-    id: '4XL',
-    label: '4XLarge · 32 vCPU · 64 GB RAM · 1 TB Disk',
-    cores: 32,
-    memGb: 64,
-    diskGb: 1024
-  }
-];
+  { id: 'XS', label: 'XSmall-1CPU · 2GBRAM · 60GBDisk · 1core', cores: 1, memGb: 2, diskGb: 60 },
+  { id: 'S', label: 'Small-2CPU · 4GBRAM · 60GBDisk · 2core', cores: 2, memGb: 4, diskGb: 60 },
+  { id: 'M', label: 'Medium-4CPU · 8GBRAM · 120GBDisk · 4core', cores: 4, memGb: 8, diskGb: 120 },
+  { id: 'L', label: 'Large-8CPU · 16GBRAM · 250GBDisk · 8core', cores: 8, memGb: 16, diskGb: 250 }
+]
 
 export interface Placement {
   node: string
@@ -157,6 +98,38 @@ export function place(resources: ClusterResource[], size: SizePreset, allowedNod
 
   candidates.sort((a, b) => b.freeMem - a.freeMem)
   return { ok: true, placement: { node: candidates[0].node, storage: candidates[0].storage } }
+}
+
+export interface IsoTarget {
+  node: string
+  storage: string
+  pctUsed: number
+  freeBytes: number
+}
+
+/**
+ * Where a newly-uploaded ISO should land. pve1 physically holds the real
+ * /var/lib/vz/template/iso directory and NFS-exports it to pve3/pve4 - only
+ * pve2 keeps a private, unshared copy (see the lab's storage notes). Uploading
+ * anywhere else risks writing an image half the cluster can't see, so this
+ * always targets pve1's storage when it's online; otherwise the least-bad
+ * fallback is whichever other node has iso-capable storage.
+ */
+export function pickIsoTarget(resources: ClusterResource[]): IsoTarget | null {
+  const isoStorages = resources.filter(
+    r => r.type === 'storage' && (r.content ?? '').includes('iso') && r.status === 'active'
+  )
+  if (!isoStorages.length) return null
+  const onPve1 = isoStorages.find(s => s.node === 'pve1')
+  const chosen = onPve1 ?? isoStorages[0]
+  const maxdisk = chosen.maxdisk ?? 1
+  const used = chosen.disk ?? 0
+  return {
+    node: chosen.node!,
+    storage: chosen.storage!,
+    pctUsed: (used / maxdisk) * 100,
+    freeBytes: maxdisk - used
+  }
 }
 
 /** One-line, plain-English capacity summary for the header. */
