@@ -100,38 +100,6 @@ export function place(resources: ClusterResource[], size: SizePreset, allowedNod
   return { ok: true, placement: { node: candidates[0].node, storage: candidates[0].storage } }
 }
 
-export interface IsoTarget {
-  node: string
-  storage: string
-  pctUsed: number
-  freeBytes: number
-}
-
-/**
- * Where a newly-uploaded ISO should land. pve1 physically holds the real
- * /var/lib/vz/template/iso directory and NFS-exports it to pve3/pve4 - only
- * pve2 keeps a private, unshared copy (see the lab's storage notes). Uploading
- * anywhere else risks writing an image half the cluster can't see, so this
- * always targets pve1's storage when it's online; otherwise the least-bad
- * fallback is whichever other node has iso-capable storage.
- */
-export function pickIsoTarget(resources: ClusterResource[]): IsoTarget | null {
-  const isoStorages = resources.filter(
-    r => r.type === 'storage' && (r.content ?? '').includes('iso') && (r.maxdisk ?? 0) > 0
-  )
-  if (!isoStorages.length) return null
-  const onPve1 = isoStorages.find(s => s.node === 'pve1')
-  const chosen = onPve1 ?? isoStorages[0]
-  const maxdisk = chosen.maxdisk ?? 1
-  const used = chosen.disk ?? 0
-  return {
-    node: chosen.node!,
-    storage: chosen.storage!,
-    pctUsed: (used / maxdisk) * 100,
-    freeBytes: maxdisk - used
-  }
-}
-
 /** One-line, plain-English capacity summary for the header. */
 export function capacityLine(resources: ClusterResource[]): string {
   const nodes = resources.filter(r => r.type === 'node' && r.status === 'online')

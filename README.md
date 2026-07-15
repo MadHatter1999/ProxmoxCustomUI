@@ -47,6 +47,30 @@ npm run serve      # serves dist/ + proxies /api2 → pve1, port 8080
 from localhost). The server runs on any box on The Proxbox LAN - **not** on the
 Proxmox nodes.
 
+### Enabling ISO uploads
+
+`PVE_ROOT_TOKEN` - **required** for the **Upload ISO** button to work at all,
+for every login including root. Tech accounts (see Techs page) only get
+`PVEVMAdmin`, which has no permission to write into storage, so every upload
+is routed the same way through a server-side root API token instead of the
+signed-in user's own session - one consistent path, not two. To create the
+token on pve1:
+
+```bash
+pveum user token add root@pam proxbox --privsep 0
+```
+
+Copy the printed `full-tokenid` and `value`, then set:
+
+```
+PVE_ROOT_TOKEN=root@pam!proxbox=<value>
+```
+
+before running `npm run serve`. This token has full root API access - keep it
+out of source control (already covered by `.gitignore`) and only run this app
+on the trusted lab LAN. Without it, the Upload ISO button will show "No image
+storage is reachable" for everyone, including root.
+
 ## Notes / limits
 
 - Team members sign in with their own Proxmox account (pam or pve realm); what

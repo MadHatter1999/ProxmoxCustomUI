@@ -83,23 +83,44 @@ export async function api<T>(path: string, opts: { method?: string; params?: Par
   return (await r.json()).data as T
 }
 
+export interface IsoTargetInfo {
+  node: string
+  storage: string
+  pctUsed: number
+  freeBytes: number
+}
+
 /**
- * Uploads a file straight to a Proxmox storage's content dir (e.g. an ISO into
- * /var/lib/vz/template/iso). Uses XHR instead of fetch so we get upload
- * progress - these are multi-GB files on a LAN, and a silent multi-minute
- * wait reads as broken.
+ * Where an uploaded ISO will land and how full that storage is. Goes through
+ * the server's /svc route (backed by root's API token) instead of the user's
+ * own session, so it works the same for a tech login as it does for root.
  */
-export function uploadFile(
-  node: string,
-  storage: string,
-  content: string,
-  file: File,
-  onProgress: (pct: number) => void
-): Promise<string> {
+export async function fetchIsoTarget(): Promise<IsoTargetInfo | null> {
+  const r = await fetch('/svc/iso-target')
+  if (r.status === 401) {
+    clearSession()
+    throw new AuthError()
+  }
+  if (r.status === 503) return null
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}))
+    throw new Error(j.message ?? `Couldn't check image storage (HTTP ${r.status})`)
+  }
+  return r.json()
+}
+
+/**
+ * Uploads a file into the shared image folder (e.g. an ISO into
+ * /var/lib/vz/template/iso). Routed through the server's elevated /svc
+ * endpoint - see fetchIsoTarget - so any signed-in user can do this, not just
+ * accounts with Datastore permissions. Uses XHR instead of fetch for upload
+ * progress: these are multi-GB files on a LAN, and a silent multi-minute wait
+ * reads as broken.
+ */
+export function uploadIso(file: File, onProgress: (pct: number) => void): Promise<string> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', `/api2/json/nodes/${node}/storage/${storage}/upload`)
-    xhr.setRequestHeader('CSRFPreventionToken', csrfToken)
+    xhr.open('POST', '/svc/upload-iso')
     xhr.upload.onprogress = e => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
     }
@@ -126,7 +147,7 @@ export function uploadFile(
     }
     xhr.onerror = () => reject(new Error('Upload failed - connection dropped'))
     const form = new FormData()
-    form.append('content', content)
+    form.append('content', 'iso')
     form.append('filename', file)
     xhr.send(form)
   })

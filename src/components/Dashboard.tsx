@@ -125,7 +125,6 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
 
       {showUpload && (
         <UploadIso
-          resources={resources}
           onClose={() => setShowUpload(false)}
           onTask={(upid, node, label) => { track(upid, node, label); setShowUpload(false) }}
           onAuthError={onLogout}

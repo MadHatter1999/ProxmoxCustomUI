@@ -7,7 +7,17 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const PVE_HOST = process.env.PVE_HOST ?? 'https://192.168.200.100:8006'
+const PVE_URL = new URL(PVE_HOST)
 const PORT = Number(process.env.PORT ?? 8080)
+// Full "user@realm!tokenid=secret" for root's API token - grants uploads even
+// for tech logins that don't have Datastore permissions of their own. See
+// README for how to create it. Server-side only, never sent to the browser.
+const ROOT_TOKEN = process.env.PVE_ROOT_TOKEN ?? ''
+
+// pve1 uses a self-signed cert everywhere in this lab; our own outbound
+// fetch() calls below need to trust it the same way the /api2 proxy already
+// does (via its `secure: false` option).
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const app = express()
 
@@ -20,6 +30,99 @@ app.use(
     secure: false
   })
 )
+
+/** Anyone with a valid Proxmox session (any user, any realm) passes this. */
+async function isSignedIn(cookieHeader: string | undefined): Promise<boolean> {
+  if (!cookieHeader?.includes('PVEAuthCookie=')) return false
+  try {
+    const r = await fetch(`${PVE_HOST}/api2/json/access/permissions`, { headers: { Cookie: cookieHeader } })
+    return r.ok
+  } catch {
+    return false
+  }
+}
+
+interface IsoTarget {
+  node: string
+  storage: string
+  pctUsed: number
+  freeBytes: number
+}
+
+/** Mirrors src/placement.ts's pickIsoTarget - kept in sync deliberately, not imported (separate build). */
+function pickIsoTarget(resources: Array<Record<string, unknown>>): IsoTarget | null {
+  const isoStorages = resources.filter(
+    r => r.type === 'storage' && String(r.content ?? '').includes('iso') && Number(r.maxdisk ?? 0) > 0
+  )
+  if (!isoStorages.length) return null
+  const onPve1 = isoStorages.find(s => s.node === 'pve1') ?? isoStorages[0]
+  const maxdisk = Number(onPve1.maxdisk ?? 1)
+  const used = Number(onPve1.disk ?? 0)
+  return {
+    node: String(onPve1.node),
+    storage: String(onPve1.storage),
+    pctUsed: (used / maxdisk) * 100,
+    freeBytes: maxdisk - used
+  }
+}
+
+async function fetchIsoTargetAsRoot(): Promise<IsoTarget | null> {
+  if (!ROOT_TOKEN) throw new Error('Server has no PVE_ROOT_TOKEN configured - ask Tony to set one up')
+  const r = await fetch(`${PVE_HOST}/api2/json/cluster/resources`, {
+    headers: { Authorization: `PVEAPIToken=${ROOT_TOKEN}` }
+  })
+  if (!r.ok) throw new Error(`Couldn't reach the cluster (HTTP ${r.status})`)
+  const { data } = (await r.json()) as { data: Array<Record<string, unknown>> }
+  return pickIsoTarget(data)
+}
+
+// Elevated image-upload path: any signed-in user (root or a scoped tech
+// login) can see where uploads land and upload files, even though their own
+// account may not have Datastore permissions - the actual write happens
+// under root's API token instead of their session.
+app.get('/svc/iso-target', async (req, res) => {
+  if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
+  try {
+    const target = await fetchIsoTargetAsRoot()
+    if (!target) return res.status(503).json({ message: 'No image storage is reachable right now' })
+    res.json(target)
+  } catch (err) {
+    res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+app.post('/svc/upload-iso', async (req, res) => {
+  if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
+  let target: IsoTarget | null
+  try {
+    target = await fetchIsoTargetAsRoot()
+  } catch (err) {
+    res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
+    return
+  }
+  if (!target) return res.status(503).json({ message: 'No image storage is reachable right now' })
+
+  const upstream = https.request(
+    {
+      hostname: PVE_URL.hostname,
+      port: PVE_URL.port || 443,
+      path: `/api2/json/nodes/${target.node}/storage/${target.storage}/upload`,
+      method: 'POST',
+      rejectUnauthorized: false,
+      headers: {
+        'content-type': req.headers['content-type'] ?? '',
+        'content-length': req.headers['content-length'] ?? '',
+        Authorization: `PVEAPIToken=${ROOT_TOKEN}`
+      }
+    },
+    upstreamRes => {
+      res.status(upstreamRes.statusCode ?? 502)
+      upstreamRes.pipe(res)
+    }
+  )
+  upstream.on('error', err => res.status(502).json({ message: err.message }))
+  req.pipe(upstream)
+})
 
 const dist = path.resolve(here, '..', 'dist')
 app.use(express.static(dist))

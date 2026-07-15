@@ -1,29 +1,44 @@
-import { useRef, useState, type FormEvent } from 'react'
-import { AuthError, uploadFile } from '../api'
-import { pickIsoTarget } from '../placement'
-import type { ClusterResource } from '../types'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { AuthError, fetchIsoTarget, uploadIso, type IsoTargetInfo } from '../api'
 
 const GB = 1024 ** 3
 const WARN_PCT = 80
 const BLOCK_PCT = 90
 
-export default function UploadIso({ resources, onClose, onTask, onAuthError }: {
-  resources: ClusterResource[]
+export default function UploadIso({ onClose, onTask, onAuthError }: {
   onClose: () => void
   onTask: (upid: string, node: string, label: string) => void
   onAuthError: () => void
 }) {
-  const target = pickIsoTarget(resources)
+  // Fetched from the server (backed by root's API token) rather than computed
+  // from /cluster/resources in the browser - a tech's own session often can't
+  // see storage entries at all, which is what made this look "unreachable".
+  const [target, setTarget] = useState<IsoTargetInfo | null | 'loading'>('loading')
   const [file, setFile] = useState<File | null>(null)
   const [override, setOverride] = useState(false)
   const [pct, setPct] = useState<number | null>(null)
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
+  useEffect(() => {
+    let stop = false
+    fetchIsoTarget()
+      .then(t => { if (!stop) setTarget(t) })
+      .catch(err => {
+        if (stop) return
+        if (err instanceof AuthError) { onAuthError(); return }
+        setError(err instanceof Error ? err.message : String(err))
+        setTarget(null)
+      })
+    return () => { stop = true }
+  }, [onAuthError])
+
   // Recompute the post-upload usage directly from bytes (freeBytes + pctUsed
   // together imply the storage's total size) rather than approximating.
   const willFit = (() => {
-    if (!target || !file) return { pct: target?.pctUsed ?? 0, blocked: false }
+    if (!target || target === 'loading' || !file) {
+      return { pct: target && target !== 'loading' ? target.pctUsed : 0, blocked: false }
+    }
     const totalBytes = target.freeBytes / (1 - target.pctUsed / 100 || 1)
     const usedAfter = totalBytes * (target.pctUsed / 100) + file.size
     const pctNow = (usedAfter / totalBytes) * 100
@@ -33,11 +48,11 @@ export default function UploadIso({ resources, onClose, onTask, onAuthError }: {
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    if (!target || !file) return
+    if (!target || target === 'loading' || !file) return
     if (willFit.blocked) return
     setPct(0)
     try {
-      const upid = await uploadFile(target.node, target.storage, 'iso', file, setPct)
+      const upid = await uploadIso(file, setPct)
       onTask(upid, target.node, `Uploading ${file.name}`)
       onClose()
     } catch (err) {
@@ -46,6 +61,8 @@ export default function UploadIso({ resources, onClose, onTask, onAuthError }: {
       setPct(null)
     }
   }
+
+  const ready = target !== null && target !== 'loading'
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget && pct === null) onClose() }}>
@@ -59,9 +76,10 @@ export default function UploadIso({ resources, onClose, onTask, onAuthError }: {
           Adds to the shared image folder everyone picks from when spinning up a machine.
         </p>
 
-        {!target && <p className="error" role="alert">⛔ No image storage is reachable right now - try again shortly.</p>}
+        {target === 'loading' && <p className="muted">Checking image storage…</p>}
+        {target === null && !error && <p className="error" role="alert">⛔ No image storage is reachable right now - try again shortly.</p>}
 
-        {target && (
+        {ready && (
           <>
             <label>
               ISO file
@@ -111,7 +129,7 @@ export default function UploadIso({ resources, onClose, onTask, onAuthError }: {
           <button type="button" className="ghost" onClick={onClose} disabled={pct !== null && pct < 100}>
             {pct !== null && pct < 100 ? 'Uploading…' : 'Cancel'}
           </button>
-          <button type="submit" className="primary" disabled={!target || !file || pct !== null || willFit.blocked}>
+          <button type="submit" className="primary" disabled={!ready || !file || pct !== null || willFit.blocked}>
             Upload
           </button>
         </div>
