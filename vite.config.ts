@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // noVNC's codec-support detection uses top-level await; the default
+  // broad-compatibility target predates it. This is a LAN-only lab tool,
+  // not a public site, so a modern baseline is fine.
+  build: { target: 'es2022' },
   plugins: [
     react(),
     VitePWA({

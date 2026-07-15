@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiElevated } from '../api'
 import type { ClusterResource } from '../types'
-import { PVE_GUI } from '../placement'
 import { downloadRdp } from '../rdp'
+import Console from './Console'
 
 /** Metadata this app stores in the VM description when it spins one up. */
 export interface MachineMeta {
@@ -50,16 +50,18 @@ interface Snapshot {
   description?: string
 }
 
-export default function MachineCard({ vm, onAction, onTask }: {
+export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
   vm: ClusterResource
   onAction: (vm: ClusterResource, action: 'start' | 'shutdown' | 'stop') => void
   onTask: (upid: string, node: string, label: string) => void
+  onAuthError: () => void
 }) {
   const running = vm.status === 'running'
   const [ip, setIp] = useState<string | null>(null)
   const [meta, setMeta] = useState<MachineMeta | null>(null)
   const [showLogin, setShowLogin] = useState(false)
   const [showSnaps, setShowSnaps] = useState(false)
+  const [showConsole, setShowConsole] = useState(false)
   const [snaps, setSnaps] = useState<Snapshot[]>([])
   const [snapName, setSnapName] = useState('')
   const [rdpBusy, setRdpBusy] = useState(false)
@@ -215,14 +217,9 @@ export default function MachineCard({ vm, onAction, onTask }: {
         <button className="small" onClick={() => setShowSnaps(s => !s)}>Snapshots</button>
         {running && <button className="small" onClick={() => onAction(vm, 'shutdown')}>Turn off</button>}
         {running && <button className="small danger" onClick={() => onAction(vm, 'stop')}>Force off</button>}
-        <a
-          className="console-link"
-          href={`${PVE_GUI}/?console=kvm&novnc=1&vmid=${vm.vmid}&node=${vm.node}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          screen
-        </a>
+        {running && (
+          <button className="small console-link" onClick={() => setShowConsole(true)}>screen</button>
+        )}
       </div>
 
       {showSnaps && (
@@ -250,6 +247,16 @@ export default function MachineCard({ vm, onAction, onTask }: {
             </div>
           ))}
         </div>
+      )}
+
+      {showConsole && vm.node && vm.vmid != null && (
+        <Console
+          node={vm.node}
+          vmid={vm.vmid}
+          name={vm.name}
+          onClose={() => setShowConsole(false)}
+          onAuthError={onAuthError}
+        />
       )}
     </div>
   )

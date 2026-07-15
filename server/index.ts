@@ -21,15 +21,18 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const app = express()
 
-// Proxy the Proxmox API: solves browser CORS and the self-signed PVE certificate.
-app.use(
-  createProxyMiddleware({
-    pathFilter: '/api2',
-    target: PVE_HOST,
-    changeOrigin: true,
-    secure: false
-  })
-)
+// Proxy the Proxmox API: solves browser CORS and the self-signed PVE
+// certificate. ws:true also carries the noVNC console's websocket through -
+// its .upgrade handler is wired to the actual server instance below, since
+// that only exists once we know which of the two listen() branches runs.
+const apiProxy = createProxyMiddleware({
+  pathFilter: '/api2',
+  target: PVE_HOST,
+  changeOrigin: true,
+  secure: false,
+  ws: true
+})
+app.use(apiProxy)
 
 /** Anyone with a valid Proxmox session (any user, any realm) passes this. */
 async function isSignedIn(cookieHeader: string | undefined): Promise<boolean> {
@@ -202,9 +205,11 @@ if (process.env.HTTPS === '1') {
     fs.writeFileSync(certFile, pems.cert)
     console.log(`Generated self-signed certificate in ${certDir}`)
   }
-  https
+  const server = https
     .createServer({ key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) }, app)
     .listen(PORT, () => console.log(`ProxBox Spin-Up (https) on port ${PORT} → ${PVE_HOST}`))
+  server.on('upgrade', apiProxy.upgrade)
 } else {
-  app.listen(PORT, () => console.log(`ProxBox Spin-Up on port ${PORT} → ${PVE_HOST}`))
+  const server = app.listen(PORT, () => console.log(`ProxBox Spin-Up on port ${PORT} → ${PVE_HOST}`))
+  server.on('upgrade', apiProxy.upgrade)
 }

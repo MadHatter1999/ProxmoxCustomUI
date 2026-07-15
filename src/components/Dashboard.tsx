@@ -90,7 +90,7 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
         <h2>Machines {machines.length > 0 && <span className="muted">({liveCount} live)</span>}</h2>
         <div className="cards">
           {machines.map(vm => (
-            <MachineCard key={vm.id} vm={vm} onAction={vmAction} onTask={track} />
+            <MachineCard key={vm.id} vm={vm} onAction={vmAction} onTask={track} onAuthError={onLogout} />
           ))}
           {machines.length === 0 && !error && <p className="muted">No machines yet - spin one up.</p>}
         </div>
