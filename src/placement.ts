@@ -117,7 +117,7 @@ export interface IsoTarget {
  */
 export function pickIsoTarget(resources: ClusterResource[]): IsoTarget | null {
   const isoStorages = resources.filter(
-    r => r.type === 'storage' && (r.content ?? '').includes('iso') && r.status === 'active'
+    r => r.type === 'storage' && (r.content ?? '').includes('iso') && (r.maxdisk ?? 0) > 0
   )
   if (!isoStorages.length) return null
   const onPve1 = isoStorages.find(s => s.node === 'pve1')
