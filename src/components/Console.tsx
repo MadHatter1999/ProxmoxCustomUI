@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import RFB from '@novnc/novnc'
 import { apiElevated, AuthError } from '../api'
 
@@ -83,7 +84,12 @@ export default function Console({ node, vmid, name, onClose, onAuthError }: {
 
   const showOverlay = status !== 'connected'
 
-  return (
+  // Portalled to <body>: MachineCard (this component's caller) has class
+  // "card", which sets backdrop-filter - and backdrop-filter, like transform
+  // or filter, makes its element the containing block for any position:fixed
+  // descendant. Without the portal, "fixed, full-viewport" backdrop would
+  // actually be pinned to that small card instead of the screen.
+  return createPortal(
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal modal-console">
         <div className="modal-head">
@@ -107,6 +113,7 @@ export default function Console({ node, vmid, name, onClose, onAuthError }: {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
