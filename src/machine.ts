@@ -7,6 +7,10 @@ export interface MachineMeta {
   image?: string
   by?: string
   at?: string
+  // Manual fallback for machines with no guest agent - e.g. a Windows VM
+  // where nobody's installed it yet. The agent, when it works, always wins
+  // over this (see MachineCard's effective-address logic).
+  ip?: string
 }
 
 export function parseMeta(description?: string): MachineMeta | null {
@@ -18,6 +22,11 @@ export function parseMeta(description?: string): MachineMeta | null {
   } catch {
     return null
   }
+}
+
+/** Rebuilds the description text this app writes, preserving the format NewMachine uses at creation. */
+export function buildDescription(meta: MachineMeta): string {
+  return `Created with ProxBox\nproxbox:${JSON.stringify(meta)}`
 }
 
 interface AgentIface {
