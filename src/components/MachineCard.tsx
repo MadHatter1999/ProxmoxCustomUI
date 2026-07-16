@@ -20,6 +20,7 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
   const running = vm.status === 'running'
   const [ip, setIp] = useState<string | null>(null)
   const [meta, setMeta] = useState<MachineMeta | null>(null)
+  const [ostype, setOstype] = useState<string | null>(null)
   const [showLogin, setShowLogin] = useState(false)
   const [showSnaps, setShowSnaps] = useState(false)
   const [showConsole, setShowConsole] = useState(false)
@@ -40,12 +41,22 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
   useEffect(() => {
     let stop = false
     if (vm.node && vm.vmid) {
-      apiElevated<{ description?: string }>(`/nodes/${vm.node}/qemu/${vm.vmid}/config`)
-        .then(cfg => { if (!stop) setMeta(parseMeta(cfg.description)) })
+      apiElevated<{ description?: string; ostype?: string }>(`/nodes/${vm.node}/qemu/${vm.vmid}/config`)
+        .then(cfg => {
+          if (stop) return
+          setMeta(parseMeta(cfg.description))
+          setOstype(cfg.ostype ?? null)
+        })
         .catch(() => {})
     }
     return () => { stop = true }
   }, [vm.node, vm.vmid])
+
+  // Proxmox's Windows ostype values all start with "w" (win11, win10, win7,
+  // wxp, w2k, ...); Linux is l24/l26, plus solaris/other. "Open RDP access"
+  // runs Windows-only PowerShell inside the guest, so it's actively wrong to
+  // offer it - and try it - on anything else.
+  const isWindows = ostype?.startsWith('w') ?? false
 
   const loadSnaps = useCallback(() => {
     apiElevated<Snapshot[]>(`/nodes/${vm.node}/qemu/${vm.vmid}/snapshot`)
@@ -132,9 +143,12 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
       } else {
         alert(`Sent - ${vm.name} is applying it${st['err-data'] ? ` but reported: ${st['err-data'].slice(0, 200)}` : ' (give it a few seconds)'}.`)
       }
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
       alert(
-        `Couldn't reach inside ${vm.name} - it may still be booting, or this image has no guest agent. ` +
+        `Couldn't reach inside ${vm.name}: ${detail}\n\n` +
+        `Common causes: the QEMU guest agent isn't enabled on this VM's hardware config, ` +
+        `the agent isn't installed/running inside the guest yet, or it's still booting. ` +
         `For fresh installs, turn on Remote Desktop during Windows setup instead.`
       )
     } finally {
@@ -169,7 +183,7 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
             Connect (RDP)
           </button>
         )}
-        {running && meta?.user && (
+        {running && meta?.user && isWindows && (
           <button onClick={openRdpAccess} disabled={rdpBusy}>{rdpBusy ? 'Opening…' : 'Open RDP access'}</button>
         )}
         {meta?.user && (
