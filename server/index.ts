@@ -125,12 +125,17 @@ async function fetchIsoTargetAsRoot(): Promise<IsoTarget | null> {
 // this is a deliberate simplification, not a leak: Proxmox's own per-role
 // permission model stops mattering for anyone using the app as intended.
 app.all('/svc/pve/*', async (req, res) => {
-  if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
+  if (!(await isSignedIn(req.headers.cookie))) {
+    console.log(`[svc/pve] ${req.method} ${req.originalUrl} -> 401 not signed in`)
+    return res.status(401).json({ message: 'Not signed in' })
+  }
   const upstreamPath = req.originalUrl.replace(/^\/svc\/pve/, '/api2/json')
   try {
     const { status, text } = await elevatedCall(req, upstreamPath)
+    console.log(`[svc/pve] ${req.method} ${upstreamPath} -> ${status}${status >= 400 ? ' ' + text.slice(0, 300) : ''}`)
     res.status(status).type('application/json').send(text)
   } catch (err) {
+    console.error(`[svc/pve] ${req.method} ${upstreamPath} FAILED:`, err)
     res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
   }
 })
@@ -188,6 +193,17 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(dist, 'index.html'))
 })
 
+// Logged wrapper around the proxy's upgrade handler - the "Disconnected"
+// reports gave zero server-side signal, so log every websocket upgrade
+// attempt (does it even arrive here?) and how its socket ends (does the
+// proxy hang up on it immediately, and with what error if any?).
+function loggedUpgrade(req: import('node:http').IncomingMessage, socket: import('node:net').Socket, head: Buffer) {
+  console.log(`[upgrade] ${req.method} ${req.url}`)
+  socket.on('error', err => console.log(`[upgrade] socket error on ${req.url}:`, err.message))
+  socket.on('close', hadError => console.log(`[upgrade] socket closed on ${req.url} (hadError=${hadError})`))
+  apiProxy.upgrade(req, socket, head)
+}
+
 if (process.env.HTTPS === '1') {
   // PWA installability needs a secure context off-localhost; generate a
   // self-signed cert on first run (team accepts it once per browser).
@@ -208,8 +224,8 @@ if (process.env.HTTPS === '1') {
   const server = https
     .createServer({ key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) }, app)
     .listen(PORT, () => console.log(`ProxBox Spin-Up (https) on port ${PORT} → ${PVE_HOST}`))
-  server.on('upgrade', apiProxy.upgrade)
+  server.on('upgrade', loggedUpgrade)
 } else {
   const server = app.listen(PORT, () => console.log(`ProxBox Spin-Up on port ${PORT} → ${PVE_HOST}`))
-  server.on('upgrade', apiProxy.upgrade)
+  server.on('upgrade', loggedUpgrade)
 }
