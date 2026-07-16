@@ -37,8 +37,8 @@ export default function Console({ node, vmid, name, onClose, onAuthError }: {
   async function handleDownloadRdp() {
     setRdpBusy(true)
     try {
-      const [detectedIp, meta] = await Promise.all([fetchIp(node, vmid), fetchMeta(node, vmid)])
-      let ip = detectedIp
+      const [ipResult, meta] = await Promise.all([fetchIp(node, vmid), fetchMeta(node, vmid)])
+      let ip = ipResult.status === 'found' ? ipResult.ip : null
       if (!ip) {
         ip = prompt("Couldn't detect the address automatically yet - what IP does the machine show (e.g. from ipconfig)?")
         if (!ip) return

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiElevated } from '../api'
 import type { ClusterResource } from '../types'
-import { fetchIp, parseMeta, type MachineMeta } from '../machine'
+import { fetchIp, parseMeta, type IpResult, type MachineMeta } from '../machine'
 import { downloadRdp } from '../rdp'
 import Console from './Console'
 
@@ -18,7 +18,7 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
   onAuthError: () => void
 }) {
   const running = vm.status === 'running'
-  const [ip, setIp] = useState<string | null>(null)
+  const [ipResult, setIpResult] = useState<IpResult>({ status: 'waiting' })
   const [meta, setMeta] = useState<MachineMeta | null>(null)
   const [ostype, setOstype] = useState<string | null>(null)
   const [showLogin, setShowLogin] = useState(false)
@@ -31,9 +31,9 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
   useEffect(() => {
     let stop = false
     if (running && vm.node && vm.vmid) {
-      fetchIp(vm.node, vm.vmid).then(v => { if (!stop) setIp(v) })
+      fetchIp(vm.node, vm.vmid).then(v => { if (!stop) setIpResult(v) })
     } else {
-      setIp(null)
+      setIpResult({ status: 'waiting' })
     }
     return () => { stop = true }
   }, [running, vm.node, vm.vmid])
@@ -166,9 +166,11 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
       {meta?.image && <p className="muted machine-sub">{meta.image}</p>}
       <p className="machine-net">
         {running
-          ? ip
-            ? <>Address: <code>{ip}</code></>
-            : <span className="muted">Address: still booting / not reported yet…</span>
+          ? ipResult.status === 'found'
+            ? <>Address: <code>{ipResult.ip}</code></>
+            : ipResult.status === 'no-agent'
+              ? <span className="muted">Address: guest agent isn't enabled on this VM - ask an admin to turn it on.</span>
+              : <span className="muted">Address: still booting / not reported yet…</span>
           : <span className="muted">Start the machine to connect.</span>}
       </p>
       {showLogin && meta?.user && (
@@ -178,8 +180,8 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
       )}
       <div className="machine-actions">
         {!running && !vm.template && <button className="primary" onClick={() => onAction(vm, 'start')}>Start</button>}
-        {running && ip && (
-          <button className="primary" onClick={() => downloadRdp(vm.name ?? 'machine', ip, meta?.user)}>
+        {running && ipResult.status === 'found' && (
+          <button className="primary" onClick={() => downloadRdp(vm.name ?? 'machine', ipResult.ip, meta?.user)}>
             Connect (RDP)
           </button>
         )}
