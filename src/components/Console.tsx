@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import RFB from '@novnc/novnc'
-import { apiElevated, AuthError } from '../api'
+import { api, AuthError } from '../api'
 
 interface VncProxyInfo {
   ticket: string
@@ -31,9 +31,14 @@ export default function Console({ node, vmid, name, onClose, onAuthError }: {
 
     async function connect() {
       try {
-        // Elevated: works the same for a tech login as it does for root,
-        // same reasoning as every other VM action in this app.
-        const info = await apiElevated<VncProxyInfo>(`/nodes/${node}/qemu/${vmid}/vncproxy`, {
+        // NOT elevated, deliberately: Proxmox scopes a VNC ticket to the
+        // exact identity that minted it. The websocket itself connects
+        // straight from the browser using its own session cookie (via the
+        // plain /api2 proxy, not the root-token /svc/pve one) - minting the
+        // ticket under a different identity (root's token) makes Proxmox
+        // reject it as invalid the moment the websocket tries to redeem it.
+        // No elevation needed anyway: VM.Console is already in PVEVMAdmin.
+        const info = await api<VncProxyInfo>(`/nodes/${node}/qemu/${vmid}/vncproxy`, {
           method: 'POST',
           params: { websocket: 1 }
         })
