@@ -214,6 +214,17 @@ button.small { padding: 5px 12px; font-size: 0.78rem; }
 
 /* ---------- nodes panel ---------- */
 .modal-wide { width: min(920px, 100%); }
+.live-indicator { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; white-space: nowrap; }
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 6px rgba(47, 212, 101, 0.8);
+  animation: livepulse 2s ease-in-out infinite;
+}
+@keyframes livepulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
 .panel-subhead {
   font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.14em;
   margin: 8px 4px 0;

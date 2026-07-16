@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import { apiElevated, AuthError } from '../api'
 import type { ClusterResource } from '../types'
 
 const fmtBytes = (n?: number) => {
@@ -35,8 +37,53 @@ function Bar({ label, used, max }: { label: string; used?: number; max?: number 
   )
 }
 
-/** Root-only infra view: hardware headroom per node, and per-storage usage. */
-export default function NodesPanel({ resources, onClose }: { resources: ClusterResource[]; onClose: () => void }) {
+const POLL_MS = 2000
+
+/**
+ * Root-only infra view: hardware headroom per node, and per-storage usage.
+ * Polls on its own 2s cycle rather than riding Dashboard's shared 5s one -
+ * this is the one screen where root is actively watching numbers change,
+ * so it should actually feel live, not just "eventually catches up".
+ */
+export default function NodesPanel({ initialResources, onClose, onAuthError }: {
+  initialResources: ClusterResource[]
+  onClose: () => void
+  onAuthError: () => void
+}) {
+  const [resources, setResources] = useState(initialResources)
+  const [lastUpdated, setLastUpdated] = useState(new Date())
+  const [tick, setTick] = useState(0)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let stop = false
+    async function load() {
+      try {
+        const data = await apiElevated<ClusterResource[]>('/cluster/resources')
+        if (stop) return
+        setResources(data)
+        setLastUpdated(new Date())
+        setError('')
+      } catch (err) {
+        if (stop) return
+        if (err instanceof AuthError) { onAuthError(); return }
+        setError(err instanceof Error ? err.message : String(err))
+      }
+    }
+    load()
+    const t = setInterval(load, POLL_MS)
+    return () => { stop = true; clearInterval(t) }
+  }, [onAuthError])
+
+  // Redraw the "Xs ago" label every second even between polls, so it visibly
+  // ticks instead of only jumping every 2s.
+  useEffect(() => {
+    const t = setInterval(() => setTick(v => v + 1), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const secsAgo = Math.max(0, Math.round((Date.now() - lastUpdated.getTime()) / 1000))
+  void tick
+
   const nodes = resources
     .filter(r => r.type === 'node')
     .sort((a, b) => (a.node ?? '').localeCompare(b.node ?? ''))
@@ -49,8 +96,15 @@ export default function NodesPanel({ resources, onClose }: { resources: ClusterR
       <div className="modal modal-wide">
         <div className="modal-head">
           <h2>Nodes</h2>
-          <button type="button" className="ghost" onClick={onClose} aria-label="Close">✕</button>
+          <div className="console-head-actions">
+            <span className="live-indicator muted">
+              <span className="live-dot" aria-hidden /> live · updated {secsAgo}s ago
+            </span>
+            <button type="button" className="ghost" onClick={onClose} aria-label="Close">✕</button>
+          </div>
         </div>
+
+        {error && <p className="error banner" role="alert">⚠ {error}</p>}
 
         <div className="cards">
           {nodes.map(n => (

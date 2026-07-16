@@ -121,7 +121,9 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
 
       {showTechs && isRoot && <TechsPage onClose={() => setShowTechs(false)} />}
 
-      {showNodes && isRoot && <NodesPanel resources={resources} onClose={() => setShowNodes(false)} />}
+      {showNodes && isRoot && (
+        <NodesPanel initialResources={resources} onClose={() => setShowNodes(false)} onAuthError={onLogout} />
+      )}
 
       {showUpload && (
         <UploadIso
