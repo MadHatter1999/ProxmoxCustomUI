@@ -5,6 +5,7 @@ import { apiElevated, AuthError } from '../api'
 
 interface VncProxyInfo {
   ticket: string
+  password: string
   port: string
 }
 
@@ -41,11 +42,13 @@ export default function Console({ node, vmid, name, onClose, onAuthError }: {
         const proto = location.protocol === 'https:' ? 'wss' : 'ws'
         const wsUrl = `${proto}://${location.host}/api2/json/nodes/${node}/qemu/${vmid}/vncwebsocket?port=${info.port}&vncticket=${encodeURIComponent(info.ticket)}`
 
-        // Proxmox's websocket proxy specifically negotiates the "binary"
-        // subprotocol - without requesting it, the RFB handshake on top of
-        // the websocket fails and the connection drops right away.
+        // vncproxy returns two different values: `ticket` (long, structured)
+        // authorizes the websocket itself via the vncticket query param;
+        // `password` (short) is the actual RFB/VNC-auth password. Using the
+        // ticket for both looks plausible but fails the RFB security
+        // handshake silently - Proxmox just drops the connection.
         rfb = new RFB(screenRef.current, wsUrl, {
-          credentials: { password: info.ticket },
+          credentials: { password: info.password },
           wsProtocols: ['binary']
         })
         // scaleViewport fits the existing framebuffer to the window.
