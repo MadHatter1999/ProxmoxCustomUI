@@ -42,6 +42,22 @@ const apiProxy = createProxyMiddleware({
 })
 app.use(apiProxy)
 
+// guacamole-lite's websocket server runs on its own internal-only port
+// rather than sharing this server's 'upgrade' event directly. Unlike
+// http-proxy-middleware (which silently no-ops on a pathFilter mismatch),
+// raw `ws` WebSocketServer attached via {server, path} actively rejects and
+// destroys any upgrade request that doesn't match its own path *before*
+// other listeners see it - that killed the noVNC console the moment this
+// was added. Proxying to an isolated port sidesteps the conflict entirely,
+// using the same pattern already proven correct for the /api2 proxy above.
+const GUAC_PORT = 8082
+const guacProxy = createProxyMiddleware({
+  pathFilter: '/guac-ws',
+  target: `http://127.0.0.1:${GUAC_PORT}`,
+  changeOrigin: true,
+  ws: true
+})
+
 /** Anyone with a valid Proxmox session (any user, any realm) passes this. */
 async function isSignedIn(cookieHeader: string | undefined): Promise<boolean> {
   if (!cookieHeader?.includes('PVEAuthCookie=')) return false
@@ -298,26 +314,30 @@ function loggedUpgrade(req: import('node:http').IncomingMessage, socket: import(
   console.log(`[upgrade] ${req.method} ${req.url}`)
   socket.on('error', err => console.log(`[upgrade] socket error on ${req.url}:`, err.message))
   socket.on('close', hadError => console.log(`[upgrade] socket closed on ${req.url} (hadError=${hadError})`))
+  // Both are http-proxy-middleware instances, each gated by its own
+  // pathFilter - safe to call unconditionally, unlike raw `ws` servers.
   apiProxy.upgrade(req, socket, head)
+  guacProxy.upgrade(req, socket, head)
 }
 
 /**
  * guacd (Apache Guacamole's protocol daemon) runs in a local-only Docker
- * container on 127.0.0.1:4822 - never exposed to the LAN directly. Attaching
- * guacamole-lite with {server, path} makes `ws` filter by path itself, so it
- * coexists with the noVNC upgrade handling above without stepping on it.
+ * container on 127.0.0.1:4822. guacamole-lite gets its own internal-only
+ * websocket server (127.0.0.1 only, not 0.0.0.0) rather than sharing the
+ * main server's 'upgrade' event - see the comment on guacProxy above for why.
+ * The main server proxies /guac-ws to it just like /api2 proxies to pve1.
  */
-function startRdpGateway(server: import('node:http').Server | import('node:https').Server) {
+function startRdpGateway() {
   if (!ROOT_TOKEN) {
     console.log('[guac] PVE_ROOT_TOKEN not set - RDP gateway disabled')
     return
   }
   new GuacamoleLite(
-    { server, path: '/guac-ws' },
+    { port: GUAC_PORT, host: '127.0.0.1' },
     { host: '127.0.0.1', port: 4822 },
     { crypt: { cypher: 'AES-256-CBC', key: RDP_KEY }, log: { level: 1 } }
   )
-  console.log('[guac] RDP gateway ready on /guac-ws')
+  console.log(`[guac] RDP gateway ready on 127.0.0.1:${GUAC_PORT} (proxied via /guac-ws)`)
 }
 
 if (process.env.HTTPS === '1') {
@@ -341,9 +361,9 @@ if (process.env.HTTPS === '1') {
     .createServer({ key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) }, app)
     .listen(PORT, () => console.log(`ProxBox Spin-Up (https) on port ${PORT} → ${PVE_HOST}`))
   server.on('upgrade', loggedUpgrade)
-  startRdpGateway(server)
+  startRdpGateway()
 } else {
   const server = app.listen(PORT, () => console.log(`ProxBox Spin-Up on port ${PORT} → ${PVE_HOST}`))
   server.on('upgrade', loggedUpgrade)
-  startRdpGateway(server)
+  startRdpGateway()
 }

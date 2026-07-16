@@ -1,7 +1,9 @@
 declare module 'guacamole-lite' {
   interface WsOptions {
-    server: import('node:http').Server | import('node:https').Server
+    server?: import('node:http').Server | import('node:https').Server
     path?: string
+    port?: number
+    host?: string
   }
   interface GuacdOptions {
     host?: string
