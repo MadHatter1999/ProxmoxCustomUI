@@ -19,9 +19,27 @@ export default function Console({ node, vmid, name, onClose, onAuthError }: {
   onAuthError: () => void
 }) {
   const screenRef = useRef<HTMLDivElement>(null)
+  const screenBoxRef = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<Status>('connecting')
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === screenBoxRef.current)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen()
+    } else {
+      screenBoxRef.current?.requestFullscreen().catch(() => {
+        setError('This browser blocked fullscreen - try again or use its own fullscreen shortcut.')
+      })
+    }
+  }
 
   useEffect(() => {
     let stop = false
@@ -105,8 +123,16 @@ export default function Console({ node, vmid, name, onClose, onAuthError }: {
           <button type="button" className="ghost" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
-        <div className="console-screen">
+        <div className="console-screen" ref={screenBoxRef}>
           <div className="console-canvas" ref={screenRef} />
+          <button
+            type="button"
+            className="small console-fullscreen-btn"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+          >
+            {isFullscreen ? '⤡ Exit fullscreen' : '⛶ Fullscreen'}
+          </button>
           {showOverlay && (
             <div className="console-overlay">
               {status === 'connecting' && <><span className="spinner" aria-hidden /> Connecting…</>}
