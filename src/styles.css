@@ -275,6 +275,8 @@ button.small { padding: 5px 12px; font-size: 0.78rem; }
   width: 22px; height: 22px; border-width: 3px;
 }
 
+.console-head-actions { display: flex; align-items: center; gap: 8px; }
+
 .console-fullscreen-btn {
   position: absolute; top: 10px; right: 10px; z-index: 2;
   opacity: 0.55;

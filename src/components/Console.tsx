@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import RFB from '@novnc/novnc'
 import { api, AuthError } from '../api'
+import { fetchIp, fetchMeta } from '../machine'
+import { downloadRdp } from '../rdp'
 
 interface VncProxyInfo {
   ticket: string
@@ -24,6 +26,28 @@ export default function Console({ node, vmid, name, onClose, onAuthError }: {
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [rdpBusy, setRdpBusy] = useState(false)
+
+  // Once they've finished setup inside the console (created the account,
+  // confirmed the address), this is the fast path to a working .rdp file
+  // without leaving the console to go find the card again. The guest agent
+  // may not be responding yet on a machine that was JUST installed, so fall
+  // back to asking for whatever address they can see on-screen (e.g. from
+  // ipconfig) rather than silently doing nothing.
+  async function handleDownloadRdp() {
+    setRdpBusy(true)
+    try {
+      const [detectedIp, meta] = await Promise.all([fetchIp(node, vmid), fetchMeta(node, vmid)])
+      let ip = detectedIp
+      if (!ip) {
+        ip = prompt("Couldn't detect the address automatically yet - what IP does the machine show (e.g. from ipconfig)?")
+        if (!ip) return
+      }
+      downloadRdp(name ?? `vm-${vmid}`, ip.trim(), meta?.user)
+    } finally {
+      setRdpBusy(false)
+    }
+  }
 
   useEffect(() => {
     const onChange = () => setIsFullscreen(document.fullscreenElement === screenBoxRef.current)
@@ -120,7 +144,12 @@ export default function Console({ node, vmid, name, onClose, onAuthError }: {
       <div className="modal modal-console">
         <div className="modal-head">
           <h2>{name ?? `VM ${vmid}`} <span className="muted">- screen</span></h2>
-          <button type="button" className="ghost" onClick={onClose} aria-label="Close">✕</button>
+          <div className="console-head-actions">
+            <button type="button" onClick={handleDownloadRdp} disabled={rdpBusy}>
+              {rdpBusy ? 'Preparing…' : 'Download RDP'}
+            </button>
+            <button type="button" className="ghost" onClick={onClose} aria-label="Close">✕</button>
+          </div>
         </div>
 
         <div className="console-screen" ref={screenBoxRef}>
