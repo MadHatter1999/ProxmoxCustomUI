@@ -149,6 +149,26 @@ export async function fetchIsoTarget(): Promise<IsoTargetInfo | null> {
 }
 
 /**
+ * Encrypted, single-use connection token for the in-browser RDP gateway.
+ * The server looks up the machine's stored login and current address itself
+ * (root-token elevated) and hands back only an opaque token - the browser
+ * never sees the Windows password. Works the same for a tech login as root,
+ * since it's not tied to the caller's own Windows/Proxmox permissions at all.
+ */
+export async function fetchRdpToken(node: string, vmid: number): Promise<string> {
+  const r = await fetch(`/svc/rdp-token?node=${encodeURIComponent(node)}&vmid=${vmid}`)
+  if (r.status === 401) {
+    clearSession()
+    throw new AuthError()
+  }
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}))
+    throw new Error(j.message ?? `Couldn't prepare the connection (HTTP ${r.status})`)
+  }
+  return (await r.json()).token
+}
+
+/**
  * Uploads a file into the shared image folder (e.g. an ISO into
  * /var/lib/vz/template/iso). Routed through the server's elevated /svc
  * endpoint - see fetchIsoTarget - so any signed-in user can do this, not just

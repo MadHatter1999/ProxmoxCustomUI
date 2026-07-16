@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiElevated } from '../api'
 import type { ClusterResource } from '../types'
 import { fetchIp, parseMeta, type IpResult, type MachineMeta } from '../machine'
-import { downloadRdp } from '../rdp'
 import Console from './Console'
+import RdpSession from './RdpSession'
 
 interface Snapshot {
   name: string
@@ -24,6 +24,7 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
   const [showLogin, setShowLogin] = useState(false)
   const [showSnaps, setShowSnaps] = useState(false)
   const [showConsole, setShowConsole] = useState(false)
+  const [showRdp, setShowRdp] = useState(false)
   const [snaps, setSnaps] = useState<Snapshot[]>([])
   const [snapName, setSnapName] = useState('')
   const [rdpBusy, setRdpBusy] = useState(false)
@@ -180,8 +181,8 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
       )}
       <div className="machine-actions">
         {!running && !vm.template && <button className="primary" onClick={() => onAction(vm, 'start')}>Start</button>}
-        {running && ipResult.status === 'found' && (
-          <button className="primary" onClick={() => downloadRdp(vm.name ?? 'machine', ipResult.ip, meta?.user)}>
+        {running && ipResult.status === 'found' && meta?.user && (
+          <button className="primary" onClick={() => setShowRdp(true)}>
             Connect (RDP)
           </button>
         )}
@@ -232,6 +233,16 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
           vmid={vm.vmid}
           name={vm.name}
           onClose={() => setShowConsole(false)}
+          onAuthError={onAuthError}
+        />
+      )}
+
+      {showRdp && vm.node && vm.vmid != null && (
+        <RdpSession
+          node={vm.node}
+          vmid={vm.vmid}
+          name={vm.name}
+          onClose={() => setShowRdp(false)}
           onAuthError={onAuthError}
         />
       )}
