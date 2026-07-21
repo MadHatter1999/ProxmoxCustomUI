@@ -196,6 +196,7 @@ button.small { padding: 5px 12px; font-size: 0.78rem; }
 .snap-name { font-weight: 600; }
 .snap-row .muted { font-size: 0.72rem; }
 .snap-spacer { flex: 1; }
+.snap-locked { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- techs page ---------- */
 .tech-form { align-items: end; }

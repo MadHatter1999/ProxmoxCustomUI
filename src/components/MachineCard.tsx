@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiElevated } from '../api'
+import { api, apiElevated } from '../api'
 import type { ClusterResource } from '../types'
 import { fetchIp, parseMeta, type IpResult, type MachineMeta } from '../machine'
 import Console from './Console'
@@ -11,13 +11,17 @@ interface Snapshot {
   description?: string
 }
 
-export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
+export default function MachineCard({ vm, isRoot, refreshTick, onAction, onTask, onRefresh, onAuthError }: {
   vm: ClusterResource
+  isRoot: boolean
+  refreshTick: number
   onAction: (vm: ClusterResource, action: 'start' | 'shutdown' | 'stop') => void
   onTask: (upid: string, node: string, label: string) => void
+  onRefresh: () => void
   onAuthError: () => void
 }) {
   const running = vm.status === 'running'
+  const [unlocking, setUnlocking] = useState(false)
   const [ipResult, setIpResult] = useState<IpResult>({ status: 'waiting' })
   const [meta, setMeta] = useState<MachineMeta | null>(null)
   const [ostype, setOstype] = useState<string | null>(null)
@@ -71,9 +75,14 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
       .catch(() => setSnaps([]))
   }, [vm.node, vm.vmid])
 
+  // Reload the list when the panel opens AND every time a tracked task finishes
+  // (refreshTick bumps on real task completion). The old code reloaded on a blind
+  // 5s timer, so a snapshot of a running VM - which writes RAM state and takes far
+  // longer than 5s - had usually not finished yet, and the new snapshot never
+  // showed up. Tying the reload to actual completion fixes that.
   useEffect(() => {
     if (showSnaps) loadSnaps()
-  }, [showSnaps, loadSnaps])
+  }, [showSnaps, loadSnaps, refreshTick])
 
   async function takeSnap() {
     const name = snapName.trim()
@@ -85,7 +94,8 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
       })
       onTask(upid, vm.node!, `Snapshotting ${vm.name} as "${name}"`)
       setSnapName('')
-      setTimeout(loadSnaps, 5000)
+      // The list refreshes when this task actually finishes (see refreshTick
+      // effect above) - not on a guessed timer that fires before it's done.
     } catch (err) {
       alert(`Couldn't snapshot: ${err instanceof Error ? err.message : err}`)
     }
@@ -110,9 +120,37 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
         method: 'DELETE'
       })
       onTask(upid, vm.node!, `Deleting snapshot "${name}" of ${vm.name}`)
-      setTimeout(loadSnaps, 5000)
+      // Refreshes on task completion (refreshTick effect), not a blind timer.
     } catch (err) {
       alert(`Couldn't delete: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  /**
+   * Clear a stuck lock. When a snapshot/rollback/backup task is interrupted, the
+   * guest is left "locked" and then every later snapshot, rollback, start and
+   * stop fails with "VM is locked" - with no way out from inside the app until
+   * now. Uses the caller's OWN session on purpose: skiplock is root@pam-only, so
+   * the root API token behind apiElevated is explicitly refused ("Only root may
+   * use this option"). That's why this is gated to root in the UI.
+   */
+  async function unlockVm() {
+    if (!confirm(
+      `Clear the "${vm.lock}" lock on ${vm.name}?\n\n` +
+      `Only do this if a snapshot or rollback got stuck. Don't do it while one is ` +
+      `genuinely still running - let that finish first.`
+    )) return
+    setUnlocking(true)
+    try {
+      await api(`/nodes/${vm.node}/qemu/${vm.vmid}/config`, {
+        method: 'PUT',
+        params: { skiplock: 1, delete: 'lock' }
+      })
+      onRefresh()
+    } catch (err) {
+      alert(`Couldn't unlock: ${err instanceof Error ? err.message : err}`)
+    } finally {
+      setUnlocking(false)
     }
   }
 
@@ -165,6 +203,16 @@ export default function MachineCard({ vm, onAction, onTask, onAuthError }: {
         <span className={`pill ${running ? 'pill-on' : 'pill-off'}`}>{running ? 'Live' : 'Off'}</span>
       </div>
       {meta?.image && <p className="muted machine-sub">{meta.image}</p>}
+      {vm.lock && (
+        <p className="machine-net snap-locked">
+          <span className="error">🔒 Locked ({vm.lock}) - snapshots, restore, start and stop are blocked.</span>
+          {isRoot
+            ? <button className="small primary" onClick={unlockVm} disabled={unlocking}>
+                {unlocking ? 'Unlocking…' : 'Unlock'}
+              </button>
+            : <span className="muted"> Ask an admin to clear it.</span>}
+        </p>
+      )}
       <p className="machine-net">
         {running
           ? ipResult.status === 'found'
