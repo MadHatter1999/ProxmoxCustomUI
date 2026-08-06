@@ -363,6 +363,15 @@ button.small { padding: 5px 12px; font-size: 0.78rem; }
 }
 .size-row input { width: auto; accent-color: var(--accent-a); }
 
+.adv-options { border: 1px solid var(--edge); border-radius: var(--r-lg); padding: 6px 16px 14px; margin: 0; }
+.adv-options legend { padding: 0; }
+.adv-toggle {
+  background: none; border: none; padding: 4px 6px; cursor: pointer;
+  font-size: 0.8rem; font-weight: 600; color: var(--ink-2);
+}
+.adv-toggle:hover { color: var(--ink); }
+.adv-options .grid2 { margin-top: 4px; }
+
 .seg { display: flex; border: 1px solid var(--edge); border-radius: 999px; overflow: hidden; width: fit-content; }
 .seg button { border: none; border-radius: 0; background: transparent; padding: 8px 16px; }
 .seg button.seg-on { background: var(--grad); color: #fff; }

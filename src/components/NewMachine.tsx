@@ -14,6 +14,31 @@ interface Props {
 /** Friendly display name for an ISO volid like "local:iso/Windows10_LTSC.iso". */
 const isoName = (volid: string) => volid.split('/').pop()?.replace(/\.iso$/i, '') ?? volid
 
+// The same knobs Proxmox's own "Create VM" wizard exposes - the few that
+// actually decide whether an OS installs at all. Defaults are chosen so a
+// fresh Windows 11 install just works (q35 + a v2 CPU is what it requires;
+// i440fx + the default kvm64 CPU is exactly what made VM 107 loop in setup).
+const OS_TYPES = [
+  { v: 'win11', l: 'Windows 11' },
+  { v: 'win10', l: 'Windows 10 / Server 2016-2022' },
+  { v: 'l26', l: 'Linux' },
+  { v: 'other', l: 'Other' }
+]
+const MACHINES = [
+  { v: 'q35', l: 'q35 - modern (recommended, required for Win 11)' },
+  { v: 'i440fx', l: 'i440fx - legacy' }
+]
+const CPU_TYPES = [
+  { v: 'x86-64-v2-AES', l: 'x86-64-v2-AES - recommended (needed by Win 11)' },
+  { v: 'host', l: 'host - fastest, matches this server' },
+  { v: 'x86-64-v2', l: 'x86-64-v2' },
+  { v: 'kvm64', l: 'kvm64 - most compatible, but Win 11 rejects it' }
+]
+const BIOSES = [
+  { v: 'ovmf', l: 'UEFI (OVMF) - recommended' },
+  { v: 'seabios', l: 'Legacy (SeaBIOS)' }
+]
+
 export default function NewMachine({ resources, username, onClose, onTask, onAuthError }: Props) {
   const [name, setName] = useState('')
   const [image, setImage] = useState('')
@@ -28,6 +53,19 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
   const [isoNodes, setIsoNodes] = useState<Record<string, string[]>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Advanced (Proxmox-wizard) options - sensible defaults, overridable below.
+  const [osType, setOsType] = useState('l26')
+  const [machine, setMachine] = useState('q35')
+  const [cpuType, setCpuType] = useState('x86-64-v2-AES')
+  const [biosType, setBiosType] = useState('ovmf')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  // When the image changes, pre-select the right OS type (Windows ISOs default
+  // to Win 11). The user can still override it in Advanced.
+  useEffect(() => {
+    if (!image || image.startsWith('tpl:')) return
+    setOsType(/win/i.test(image) ? 'win11' : 'l26')
+  }, [image])
 
   const size: SizePreset = custom
     ? { id: 'Custom', label: 'Custom', cores: cCores, memGb: cRam, diskGb: cDisk }
@@ -135,24 +173,31 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
         onTask(upid, tpl.node!, `Spinning up ${name}`)
       } else {
         if (!image) throw new Error('Pick an image')
-        const win = /win/i.test(image)
+        const win = osType.startsWith('win')
         const params: Record<string, string | number | boolean | undefined> = {
           vmid,
           name,
           cores: size.cores,
           sockets: 1,
           memory: size.memGb * 1024,
-          ostype: win ? 'win10' : 'l26',
+          ostype: osType,
+          cpu: cpuType,
+          bios: biosType,
           description,
           ide2: `${image},media=cdrom`,
-          bios: 'ovmf',
-          efidisk0: `${storage}:1,efitype=4m,pre-enrolled-keys=1`,
           onboot: false
         }
+        // q35 is the modern chipset; i440fx is Proxmox's default so we only send
+        // 'machine' when it differs.
+        if (machine !== 'i440fx') params.machine = machine
+        // An EFI disk (and its pre-enrolled keys) only makes sense under OVMF.
+        if (biosType === 'ovmf') params.efidisk0 = `${storage}:1,efitype=4m,pre-enrolled-keys=1`
         if (win) {
           params.ide0 = `${storage}:${size.diskGb}`
+          params.scsihw = 'virtio-scsi-single'
           params.net0 = 'e1000,bridge=vmbr0,firewall=1'
           params.boot = 'order=ide0;ide2;net0'
+          // TPM 2.0 - Windows 11 refuses to install without it.
           params.tpmstate0 = `${storage}:1,version=v2.0`
         } else {
           params.scsihw = 'virtio-scsi-single'
@@ -260,6 +305,57 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
             <input value={vmPass} onChange={e => setVmPass(e.target.value)} required />
           </label>
         </div>
+
+        {isInstaller && (
+          <fieldset className="adv-options">
+            <legend>
+              <button
+                type="button"
+                className="adv-toggle"
+                onClick={() => setShowAdvanced(s => !s)}
+                aria-expanded={showAdvanced}
+              >
+                {showAdvanced ? '▾' : '▸'} Advanced options {osType.startsWith('win') && !showAdvanced && '(set for Windows automatically)'}
+              </button>
+            </legend>
+            {showAdvanced && (
+              <>
+                <div className="grid2">
+                  <label>
+                    Operating system
+                    <select value={osType} onChange={e => setOsType(e.target.value)}>
+                      {OS_TYPES.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    Machine type
+                    <select value={machine} onChange={e => setMachine(e.target.value)}>
+                      {MACHINES.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    CPU type
+                    <select value={cpuType} onChange={e => setCpuType(e.target.value)}>
+                      {CPU_TYPES.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    BIOS
+                    <select value={biosType} onChange={e => setBiosType(e.target.value)}>
+                      {BIOSES.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {osType.startsWith('win') && (machine === 'i440fx' || cpuType === 'kvm64') && (
+                  <p className="warn">
+                    ⚠ Windows 11 needs <strong>q35</strong> and a <strong>v2 CPU</strong> (e.g. x86-64-v2-AES).
+                    With i440fx or kvm64 the installer loops. Leave the recommended values unless you know why.
+                  </p>
+                )}
+              </>
+            )}
+          </fieldset>
+        )}
 
         {isInstaller && (
           <p className="warn">
