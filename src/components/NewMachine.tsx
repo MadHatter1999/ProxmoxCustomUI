@@ -52,7 +52,6 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
   const [isos, setIsos] = useState<IsoVolume[]>([])
   const [isoNodes, setIsoNodes] = useState<Record<string, string[]>>({})
   const [wims, setWims] = useState<WimImage[]>([])
-  const [wimFilter, setWimFilter] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   // Advanced (Proxmox-wizard) options - sensible defaults, overridable below.
@@ -76,12 +75,6 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
     fetchWims().then(w => { if (!stop) setWims(w) }).catch(() => {})
     return () => { stop = true }
   }, [])
-
-  const filteredWims = useMemo(() => {
-    const q = wimFilter.trim().toLowerCase()
-    if (!q) return wims
-    return wims.filter(w => (w.name + ' ' + w.folder).toLowerCase().includes(q))
-  }, [wims, wimFilter])
 
   const size: SizePreset = custom
     ? { id: 'Custom', label: 'Custom', cores: cCores, memGb: cRam, diskGb: cDisk }
@@ -279,8 +272,8 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
               ))}
             </optgroup>
             {wims.length > 0 && (
-              <optgroup label={`Image library — ${wims.length} WIMs${wimFilter ? ` (${filteredWims.length} shown)` : ''}`}>
-                {filteredWims.map(w => (
+              <optgroup label={`Image library — ${wims.length} WIMs`}>
+                {wims.map(w => (
                   <option key={w.path} value={`wim:${w.path}`}>{w.name} — {w.sizeGb} GB</option>
                 ))}
               </optgroup>
@@ -288,19 +281,9 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
           </select>
         </label>
 
-        {wims.length > 0 && (
-          <label className="wim-filter">
-            Filter the {wims.length}-image library
-            <input
-              value={wimFilter}
-              onChange={e => setWimFilter(e.target.value)}
-              placeholder="type part of a name, e.g. Quest, CX5, M720…"
-            />
-          </label>
-        )}
         {isWim && (
           <p className="machine-sub muted">
-            Picked from the GhostDrive library{image.slice(4).includes('/') ? ` · ${image.slice(4, image.lastIndexOf('/'))}` : ''}
+            From the GhostDrive library{image.slice(4).includes('/') ? ` · ${image.slice(4, image.lastIndexOf('/'))}` : ''}
           </p>
         )}
 
