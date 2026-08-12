@@ -148,6 +148,33 @@ export async function fetchIsoTarget(): Promise<IsoTargetInfo | null> {
   return r.json()
 }
 
+export interface WimImage {
+  name: string
+  path: string
+  folder: string
+  sizeBytes: number
+  sizeGb: number
+}
+
+/**
+ * The flat list of every WIM on the GhostDrive image library (the 5TB drive,
+ * mounted read-only server-side). Recursively scanned so staff pick an image
+ * by name and never have to walk its folder tree.
+ */
+export async function fetchWims(): Promise<WimImage[]> {
+  const r = await fetch('/svc/wims')
+  if (r.status === 401) {
+    clearSession()
+    throw new AuthError()
+  }
+  if (r.status === 503) return [] // drive not mounted - treat as "no WIMs available"
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}))
+    throw new Error(j.message ?? `Couldn't read the image library (HTTP ${r.status})`)
+  }
+  return r.json()
+}
+
 /**
  * Encrypted, single-use connection token for the in-browser RDP gateway.
  * The server looks up the machine's stored login and current address itself

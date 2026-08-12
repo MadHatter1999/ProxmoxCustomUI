@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { apiElevated, AuthError } from '../api'
+import { apiElevated, AuthError, fetchWims, type WimImage } from '../api'
 import type { ClusterResource, IsoVolume } from '../types'
 import { place, SIZES, type SizePreset } from '../placement'
 
@@ -51,6 +51,8 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
   const [vmPass, setVmPass] = useState('')
   const [isos, setIsos] = useState<IsoVolume[]>([])
   const [isoNodes, setIsoNodes] = useState<Record<string, string[]>>({})
+  const [wims, setWims] = useState<WimImage[]>([])
+  const [wimFilter, setWimFilter] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   // Advanced (Proxmox-wizard) options - sensible defaults, overridable below.
@@ -60,21 +62,36 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
   const [biosType, setBiosType] = useState('ovmf')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
-  // When the image changes, pre-select the right OS type (Windows ISOs default
-  // to Win 11). The user can still override it in Advanced.
+  // When the image changes, pre-select the right OS type (Windows ISOs and every
+  // WIM default to Win 11). The user can still override it in Advanced.
   useEffect(() => {
     if (!image || image.startsWith('tpl:')) return
-    setOsType(/win/i.test(image) ? 'win11' : 'l26')
+    setOsType(image.startsWith('wim:') || /win/i.test(image) ? 'win11' : 'l26')
   }, [image])
+
+  // Pull the flat WIM list from the GhostDrive library once. Silent on failure
+  // (drive unmounted just means no WIMs offered) so it never blocks the form.
+  useEffect(() => {
+    let stop = false
+    fetchWims().then(w => { if (!stop) setWims(w) }).catch(() => {})
+    return () => { stop = true }
+  }, [])
+
+  const filteredWims = useMemo(() => {
+    const q = wimFilter.trim().toLowerCase()
+    if (!q) return wims
+    return wims.filter(w => (w.name + ' ' + w.folder).toLowerCase().includes(q))
+  }, [wims, wimFilter])
 
   const size: SizePreset = custom
     ? { id: 'Custom', label: 'Custom', cores: cCores, memGb: cRam, diskGb: cDisk }
     : SIZES.find(s => s.id === sizeId) ?? SIZES[1]
 
   // An ISO can only boot on a node that actually sees it in an image folder;
-  // the app mediates that - the tech never has to know or care.
+  // the app mediates that - the tech never has to know or care. Templates and
+  // WIMs aren't tied to a node's ISO folder, so they place anywhere.
   const allowedNodes = useMemo(() => {
-    if (!image || image.startsWith('tpl:')) return undefined
+    if (!image || image.startsWith('tpl:') || image.startsWith('wim:')) return undefined
     return isoNodes[image] ?? []
   }, [image, isoNodes])
 
@@ -131,6 +148,12 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
+    if (image.startsWith('wim:')) {
+      // The library scan/list is live; the WinPE auto-apply that actually lays a
+      // WIM onto a new disk is the next build. Don't pretend to deploy it yet.
+      setError('This image is from the WIM library. One-click deploy (WinPE auto-apply) is being set up next - for now pick an ISO or a ready-to-use template.')
+      return
+    }
     if (!placement.ok) return
     setBusy(true)
     const { node, storage } = placement.placement
@@ -216,7 +239,8 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
     }
   }
 
-  const isInstaller = image !== '' && !image.startsWith('tpl:')
+  const isWim = image.startsWith('wim:')
+  const isInstaller = image !== '' && !image.startsWith('tpl:') && !isWim
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -254,8 +278,31 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
                 <option key={v.volid} value={v.volid}>{isoName(v.volid)}</option>
               ))}
             </optgroup>
+            {wims.length > 0 && (
+              <optgroup label={`Image library — ${wims.length} WIMs${wimFilter ? ` (${filteredWims.length} shown)` : ''}`}>
+                {filteredWims.map(w => (
+                  <option key={w.path} value={`wim:${w.path}`}>{w.name} — {w.sizeGb} GB</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
+
+        {wims.length > 0 && (
+          <label className="wim-filter">
+            Filter the {wims.length}-image library
+            <input
+              value={wimFilter}
+              onChange={e => setWimFilter(e.target.value)}
+              placeholder="type part of a name, e.g. Quest, CX5, M720…"
+            />
+          </label>
+        )}
+        {isWim && (
+          <p className="machine-sub muted">
+            Picked from the GhostDrive library{image.slice(4).includes('/') ? ` · ${image.slice(4, image.lastIndexOf('/'))}` : ''}
+          </p>
+        )}
 
         <fieldset className="sizes">
           <legend>Size</legend>

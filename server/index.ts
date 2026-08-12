@@ -190,6 +190,61 @@ app.get('/svc/iso-target', async (req, res) => {
   }
 })
 
+// ---- GhostDrive WIM library ------------------------------------------------
+// The 5TB image drive, mounted READ-ONLY on this box over CIFS. We walk it
+// recursively and hand the app a FLAT list of every WIM, so staff pick an image
+// by name instead of digging through its folder tree. We only ever read here.
+const WIM_ROOT = process.env.WIM_ROOT ?? '/mnt/ghostdrive'
+const WIM_TTL_MS = 60_000
+
+interface WimEntry { name: string; path: string; folder: string; sizeBytes: number; sizeGb: number }
+let wimCache: { at: number; data: WimEntry[] } | null = null
+
+async function scanWims(root: string): Promise<WimEntry[]> {
+  const out: WimEntry[] = []
+  async function walk(dir: string): Promise<void> {
+    let entries: fs.Dirent[]
+    try { entries = await fs.promises.readdir(dir, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      if (e.name.startsWith('$') || e.name.startsWith('.')) continue // skip $RECYCLE.BIN, System Volume Info, hidden
+      const full = path.join(dir, e.name)
+      if (e.isDirectory()) {
+        await walk(full)
+      } else if (/\.(wim|esd|swm)$/i.test(e.name)) {
+        try {
+          const st = await fs.promises.stat(full)
+          const rel = path.relative(root, full)
+          const folder = path.dirname(rel)
+          out.push({
+            name: e.name.replace(/\.(wim|esd|swm)$/i, ''),
+            path: rel,
+            folder: folder === '.' ? '' : folder,
+            sizeBytes: st.size,
+            sizeGb: Math.round((st.size / 1073741824) * 100) / 100
+          })
+        } catch { /* unreadable file - skip it rather than fail the whole scan */ }
+      }
+    }
+  }
+  await walk(root)
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+app.get('/svc/wims', async (req, res) => {
+  if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
+  if (!fs.existsSync(WIM_ROOT)) {
+    return res.status(503).json({ message: `WIM drive not mounted at ${WIM_ROOT} - ask an admin.` })
+  }
+  try {
+    if (wimCache && Date.now() - wimCache.at < WIM_TTL_MS) return res.json(wimCache.data)
+    const data = await scanWims(WIM_ROOT)
+    wimCache = { at: Date.now(), data }
+    res.json(data)
+  } catch (err) {
+    res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
+  }
+})
+
 app.post('/svc/upload-iso', async (req, res) => {
   if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
   let target: IsoTarget | null
