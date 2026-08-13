@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { apiElevated, AuthError, fetchWims, type WimImage } from '../api'
+import { apiElevated, AuthError, deployWim, fetchWims, type DeployJob, type WimImage } from '../api'
 import type { ClusterResource, IsoVolume } from '../types'
 import { place, SIZES, type SizePreset } from '../placement'
+import DeployProgress from './DeployProgress'
 
 interface Props {
   resources: ClusterResource[]
@@ -54,6 +55,7 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
   const [wims, setWims] = useState<WimImage[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [deployJob, setDeployJob] = useState<DeployJob | null>(null)
   // Advanced (Proxmox-wizard) options - sensible defaults, overridable below.
   const [osType, setOsType] = useState('l26')
   const [machine, setMachine] = useState('q35')
@@ -141,10 +143,24 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    if (image.startsWith('wim:')) {
-      // The library scan/list is live; the WinPE auto-apply that actually lays a
-      // WIM onto a new disk is the next build. Don't pretend to deploy it yet.
-      setError('This image is from the WIM library. One-click deploy (WinPE auto-apply) is being set up next - for now pick an ISO or a ready-to-use template.')
+    // WIM library images deploy via the WinPE engine, not a plain VM create.
+    if (isWim) {
+      const w = wims.find(x => `wim:${x.path}` === image)
+      if (!w) { setError('Pick an image'); return }
+      setBusy(true)
+      const description = `Created with ProxBox\nproxbox:${JSON.stringify({
+        user: vmUser, pass: vmPass, image: w.name, by: username, at: new Date().toISOString().slice(0, 10)
+      })}`
+      try {
+        const job = await deployWim({
+          name, wim: w.path, cores: size.cores, memory: size.memGb * 1024, disk: size.diskGb, description
+        })
+        setDeployJob(job)
+      } catch (err) {
+        if (err instanceof AuthError) { onAuthError(); return }
+        setError(err instanceof Error ? err.message : String(err))
+        setBusy(false)
+      }
       return
     }
     if (!placement.ok) return
@@ -394,16 +410,36 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
           </p>
         )}
 
-        {!placement.ok && <p className="error" role="alert">⛔ {placement.reason}</p>}
+        {isWim && (
+          <p className="warn">
+            ⚙ This builds a machine and applies the image for you automatically - it boots itself,
+            lays down the image, and comes up ready. Just give it a few minutes.
+          </p>
+        )}
+
+        {!isWim && !placement.ok && <p className="error" role="alert">⛔ {placement.reason}</p>}
         {error && <p className="error" role="alert">⚠ {error}</p>}
 
         <div className="modal-foot">
           <button type="button" className="ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" className="primary" disabled={busy || !placement.ok}>
-            {busy ? 'Spinning up…' : 'Spin it up'}
+          <button type="submit" className="primary" disabled={busy || (!isWim && !placement.ok)}>
+            {busy ? (isWim ? 'Starting deploy…' : 'Spinning up…') : isWim ? 'Deploy image' : 'Spin it up'}
           </button>
         </div>
       </form>
+
+      {deployJob && (() => {
+        const w = wims.find(x => `wim:${x.path}` === image)
+        return (
+          <DeployProgress
+            job={deployJob}
+            name={name}
+            imageName={w?.name ?? 'the image'}
+            sizeGb={w?.sizeGb ?? 20}
+            onDone={onClose}
+          />
+        )
+      })()}
     </div>
   )
 }

@@ -175,6 +175,34 @@ export async function fetchWims(): Promise<WimImage[]> {
   return r.json()
 }
 
+export interface DeployJob { vmid: number; node: string }
+
+/**
+ * Kick off a WIM deploy: the server spins up a VM that boots WinPE, applies the
+ * chosen image off GhostDrive, and makes it bootable - then hands back the new
+ * machine's id/node so the UI can watch it come up.
+ */
+export async function deployWim(params: {
+  name: string; wim: string; index?: number
+  cores: number; memory: number; disk: number; description: string
+}): Promise<DeployJob> {
+  const body = new URLSearchParams()
+  body.append('name', params.name)
+  body.append('wim', params.wim)
+  body.append('index', String(params.index ?? 1))
+  body.append('cores', String(params.cores))
+  body.append('memory', String(params.memory))
+  body.append('disk', String(params.disk))
+  body.append('description', params.description)
+  const r = await fetch('/svc/deploy-wim', { method: 'POST', body })
+  if (r.status === 401) { clearSession(); throw new AuthError() }
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}))
+    throw new Error(j.message ?? `Couldn't start the deploy (HTTP ${r.status})`)
+  }
+  return r.json()
+}
+
 /**
  * Encrypted, single-use connection token for the in-browser RDP gateway.
  * The server looks up the machine's stored login and current address itself

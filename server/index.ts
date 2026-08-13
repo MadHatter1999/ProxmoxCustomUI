@@ -1,5 +1,6 @@
 import express from 'express'
 import { createProxyMiddleware } from 'http-proxy-middleware'
+import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import https from 'node:https'
@@ -240,6 +241,140 @@ app.get('/svc/wims', async (req, res) => {
     const data = await scanWims(WIM_ROOT)
     wimCache = { at: Date.now(), data }
     res.json(data)
+  } catch (err) {
+    res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+// ---- WIM deploy (WinPE) ----------------------------------------------------
+// Picking a WIM in the UI spins up a VM that self-deploys it: it boots our
+// WinPE ISO, which reads a tiny per-VM config ISO (built here), pulls the WIM
+// off GhostDrive, DISM-applies it, bcdboots, and powers off. We watch for that
+// power-off, then swap the VM to boot from disk and delete the throwaway config
+// ISO so the drive doesn't fill up.
+const WINPE_ISO = process.env.WINPE_ISO ?? 'local:iso/proxbox-winpe-deploy.iso'
+const DEPLOY_NODE = process.env.DEPLOY_NODE ?? 'pve1'   // WinPE + config ISOs physically live on pve1's local
+const DEPLOY_STORAGE = process.env.DEPLOY_STORAGE ?? 'local'
+const GHOST_SHARE = process.env.GHOST_SHARE ?? '\\\\192.168.200.100\\GhostDrive'
+const GHOST_USER = process.env.GHOST_USER ?? 'Ghost'
+const GHOST_PASS = process.env.GHOST_PASS ?? 'AtlasInTheEnd26!!'
+
+/** A write to the PVE API under root's token, not tied to an incoming request. */
+async function elevatedRequest(method: string, pvePath: string, params?: Record<string, string | number>): Promise<unknown> {
+  if (!ROOT_TOKEN) throw new Error('Server has no PVE_ROOT_TOKEN configured')
+  const init: RequestInit = { method, headers: { Authorization: `PVEAPIToken=${ROOT_TOKEN}` } }
+  if (params && method !== 'GET') {
+    const body = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) body.append(k, String(v))
+    init.body = body
+    ;(init.headers as Record<string, string>)['content-type'] = 'application/x-www-form-urlencoded'
+  }
+  const r = await fetch(`${PVE_HOST}${pvePath}`, init)
+  const text = await r.text()
+  if (!r.ok) throw new Error(`PVE ${method} ${pvePath} -> ${r.status}: ${text.slice(0, 300)}`)
+  try { return JSON.parse(text).data } catch { return text }
+}
+
+/** Build a tiny ISO holding proxbox-deploy.conf and upload it to PVE ISO storage. */
+async function buildAndUploadConfigIso(vmid: number, wimRelPath: string, wimIndex: number): Promise<string> {
+  const dir = fs.mkdtempSync(path.join('/tmp', 'pbcfg-'))
+  try {
+    const winPath = wimRelPath.replace(/\//g, '\\')
+    // LF-only so WinPE's `for /f` doesn't inherit a trailing CR on each value.
+    const conf =
+      `SHARE=${GHOST_SHARE}\nSHAREUSER=${GHOST_USER}\nSHAREPASS=${GHOST_PASS}\n` +
+      `WIMPATH=${winPath}\nWIMINDEX=${wimIndex}\n`
+    fs.writeFileSync(path.join(dir, 'proxbox-deploy.conf'), conf, 'latin1')
+    const isoPath = path.join(dir, 'cfg.iso')
+    execFileSync('genisoimage', ['-J', '-R', '-V', 'PROXBOXCFG', '-o', isoPath, dir], { stdio: 'ignore' })
+    const filename = `proxbox-cfg-${vmid}.iso`
+    const boundary = '----proxbox' + crypto.randomBytes(8).toString('hex')
+    const pre = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="content"\r\n\r\niso\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="filename"; filename="${filename}"\r\n` +
+      `Content-Type: application/octet-stream\r\n\r\n`
+    )
+    const body = Buffer.concat([pre, fs.readFileSync(isoPath), Buffer.from(`\r\n--${boundary}--\r\n`)])
+    const r = await fetch(`${PVE_HOST}/api2/json/nodes/${DEPLOY_NODE}/storage/${DEPLOY_STORAGE}/upload`, {
+      method: 'POST',
+      headers: { Authorization: `PVEAPIToken=${ROOT_TOKEN}`, 'content-type': `multipart/form-data; boundary=${boundary}` },
+      body
+    })
+    if (!r.ok) throw new Error('config ISO upload failed: ' + (await r.text()).slice(0, 300))
+    return `${DEPLOY_STORAGE}:iso/${filename}`
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+/** Tap Enter for a while to clear WinPE's "Press any key to boot from CD" prompt. */
+async function clearBootPrompt(node: string, vmid: number): Promise<void> {
+  for (let i = 0; i < 15; i++) {
+    await sleep(2000)
+    try { await elevatedRequest('PUT', `/api2/json/nodes/${node}/qemu/${vmid}/sendkey`, { key: 'ret' }) } catch { /* keep tapping */ }
+  }
+}
+
+/** When WinPE finishes and powers the VM off, swap it to boot from disk and bin the config ISO. */
+async function finalizeWhenDeployed(node: string, vmid: number, cfgVolid: string): Promise<void> {
+  let sawRunning = false
+  for (let i = 0; i < 240; i++) { // up to ~80 min
+    await sleep(20000)
+    let status = ''
+    try {
+      const st = (await elevatedGet(`/api2/json/nodes/${node}/qemu/${vmid}/status/current`)) as { status?: string }
+      status = st.status ?? ''
+    } catch { continue }
+    if (status === 'running') sawRunning = true
+    if (sawRunning && status === 'stopped') {
+      try {
+        await elevatedRequest('PUT', `/api2/json/nodes/${node}/qemu/${vmid}/config`, { delete: 'ide2,ide3' })
+        await elevatedRequest('PUT', `/api2/json/nodes/${node}/qemu/${vmid}/config`, { boot: 'order=ide0' })
+        await elevatedRequest('DELETE', `/api2/json/nodes/${node}/storage/${DEPLOY_STORAGE}/content/${encodeURIComponent(cfgVolid)}`).catch(() => {})
+        await elevatedRequest('POST', `/api2/json/nodes/${node}/qemu/${vmid}/status/start`)
+      } catch (err) {
+        console.error('[deploy-wim] finalize failed:', err)
+      }
+      return
+    }
+  }
+  console.error(`[deploy-wim] VM ${vmid} never powered off - config ISO ${cfgVolid} left in place for inspection`)
+}
+
+app.post('/svc/deploy-wim', async (req, res) => {
+  if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
+  if (!ROOT_TOKEN) return res.status(500).json({ message: 'Server has no PVE_ROOT_TOKEN configured' })
+  const p = new URLSearchParams((await readRawBody(req)).toString())
+  const name = p.get('name') ?? ''
+  const wim = p.get('wim') ?? ''
+  const wimIndex = Number(p.get('index') ?? '1') || 1
+  const cores = Number(p.get('cores') ?? '4') || 4
+  const memory = Number(p.get('memory') ?? '8192') || 8192
+  const disk = Number(p.get('disk') ?? '120') || 120
+  const description = p.get('description') ?? 'Created with ProxBox'
+  if (!name || !wim) return res.status(400).json({ message: 'name and wim are required' })
+
+  try {
+    const vmid = Number(await elevatedGet('/api2/json/cluster/nextid'))
+    const cfgVolid = await buildAndUploadConfigIso(vmid, wim, wimIndex)
+    await elevatedRequest('POST', `/api2/json/nodes/${DEPLOY_NODE}/qemu`, {
+      vmid, name, machine: 'q35', bios: 'ovmf', cores, sockets: 1, memory, ostype: 'win11',
+      cpu: 'x86-64-v2-AES', scsihw: 'virtio-scsi-single', net0: 'e1000,bridge=vmbr0,firewall=1',
+      efidisk0: `${DEPLOY_STORAGE}:1,efitype=4m,pre-enrolled-keys=1`,
+      tpmstate0: `${DEPLOY_STORAGE}:1,version=v2.0`,
+      ide0: `${DEPLOY_STORAGE}:${disk}`,
+      ide2: `${WINPE_ISO},media=cdrom`,
+      ide3: `${cfgVolid},media=cdrom`,
+      boot: 'order=ide2;ide0',
+      description
+    })
+    await elevatedRequest('POST', `/api2/json/nodes/${DEPLOY_NODE}/qemu/${vmid}/status/start`)
+    // Fire-and-forget: clear the boot prompt, then finalize once WinPE powers off.
+    clearBootPrompt(DEPLOY_NODE, vmid).catch(() => {})
+    finalizeWhenDeployed(DEPLOY_NODE, vmid, cfgVolid).catch(err => console.error('[deploy-wim]', err))
+    res.json({ vmid, node: DEPLOY_NODE })
   } catch (err) {
     res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
   }
