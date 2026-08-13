@@ -259,7 +259,13 @@ app.get('/svc/wims', async (req, res) => {
 const WINPE_ISO = process.env.WINPE_ISO ?? 'local:iso/proxbox-winpe-deploy.iso'
 const DEPLOY_NODE = process.env.DEPLOY_NODE ?? 'pve1'   // WinPE + config ISOs physically live on pve1's local
 const DEPLOY_STORAGE = process.env.DEPLOY_STORAGE ?? 'local'
-const GHOST_SHARE = process.env.GHOST_SHARE ?? '\\\\192.168.200.100\\GhostDrive'
+// Built from plain host + share name, NOT a full UNC in an env var - systemd's
+// EnvironmentFile eats backslashes, which silently broke deploys. GhostDeploy is
+// a read-only, subnet-wide share the deploy VMs pull WIMs from (separate from
+// GhostDrive, which Tony repurposed for the RemoteFTP staging link).
+const GHOST_HOST = process.env.GHOST_HOST ?? '192.168.200.100'
+const GHOST_SHARE_NAME = process.env.GHOST_SHARE_NAME ?? 'GhostDeploy'
+const GHOST_SHARE = `\\\\${GHOST_HOST}\\${GHOST_SHARE_NAME}`
 const GHOST_USER = process.env.GHOST_USER ?? 'Ghost'
 const GHOST_PASS = process.env.GHOST_PASS ?? 'AtlasInTheEnd26!!'
 
