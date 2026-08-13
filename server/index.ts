@@ -197,6 +197,10 @@ app.get('/svc/iso-target', async (req, res) => {
 // by name instead of digging through its folder tree. We only ever read here.
 const WIM_ROOT = process.env.WIM_ROOT ?? '/mnt/ghostdrive'
 const WIM_TTL_MS = 60_000
+// WIM uploads land here - a read-WRITE mount of the same 5TB drive (app-only
+// Samba share). Written to an Uploads/ subfolder so the sacred library is never
+// touched; the scan above (WIM_ROOT) then picks them up like any other image.
+const WIM_UPLOAD_DIR = process.env.WIM_UPLOAD_DIR ?? '/mnt/ghostupload/Uploads'
 
 interface WimEntry { name: string; path: string; folder: string; sizeBytes: number; sizeGb: number }
 let wimCache: { at: number; data: WimEntry[] } | null = null
@@ -378,6 +382,43 @@ app.post('/svc/deploy-wim', async (req, res) => {
   } catch (err) {
     res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
   }
+})
+
+// Upload a WIM (or .esd/.swm) straight onto the 5TB drive's Uploads/ folder.
+// Streamed to a .part file and renamed on completion, so the scan never lists a
+// half-uploaded image. Any signed-in user can do this (root-token-backed mount).
+app.post('/svc/upload-wim', async (req, res) => {
+  if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
+  const raw = String(req.query.filename ?? '')
+  const safe = path.basename(raw).replace(/[^A-Za-z0-9._ ()\-]/g, '_')
+  if (!/\.(wim|esd|swm)$/i.test(safe)) {
+    return res.status(400).json({ message: 'Only .wim, .esd or .swm files can be uploaded here.' })
+  }
+  try { fs.mkdirSync(WIM_UPLOAD_DIR, { recursive: true }) } catch { /* exists / created by admin */ }
+  const dest = path.join(WIM_UPLOAD_DIR, safe)
+  const tmp = `${dest}.part`
+  const out = fs.createWriteStream(tmp)
+  let failed = false
+  const fail = (code: number, msg: string) => {
+    if (failed) return
+    failed = true
+    out.destroy()
+    try { fs.rmSync(tmp, { force: true }) } catch { /* already gone */ }
+    if (!res.headersSent) res.status(code).json({ message: msg })
+  }
+  req.on('error', () => fail(400, 'Upload connection dropped'))
+  out.on('error', err => fail(500, 'Write to the drive failed: ' + err.message))
+  out.on('finish', () => {
+    if (failed) return
+    try {
+      fs.renameSync(tmp, dest)
+      wimCache = null // so the new image shows up on the next scan immediately
+      res.json({ ok: true, path: `Uploads/${safe}` })
+    } catch (err) {
+      fail(500, 'Couldn\'t finalize the upload: ' + (err instanceof Error ? err.message : String(err)))
+    }
+  })
+  req.pipe(out)
 })
 
 app.post('/svc/upload-iso', async (req, res) => {

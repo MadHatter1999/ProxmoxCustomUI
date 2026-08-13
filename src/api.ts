@@ -266,3 +266,30 @@ export function uploadIso(file: File, onProgress: (pct: number) => void): Promis
     xhr.send(form)
   })
 }
+
+/**
+ * Uploads a WIM (or .esd/.swm) straight onto the 5TB image library. Streamed as
+ * the raw body to /svc/upload-wim, which drops it in the drive's Uploads/ folder
+ * - it then shows up in the image library like any other WIM.
+ */
+export function uploadWim(file: File, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `/svc/upload-wim?filename=${encodeURIComponent(file.name)}`)
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.onload = () => {
+      if (xhr.status === 401) { clearSession(); reject(new AuthError()); return }
+      if (xhr.status >= 200 && xhr.status < 300) { resolve(); return }
+      let msg = `Upload failed (HTTP ${xhr.status})`
+      try {
+        const j = JSON.parse(xhr.responseText)
+        if (typeof j.message === 'string') msg += ' - ' + j.message.trim()
+      } catch { /* non-JSON error body */ }
+      reject(new Error(msg))
+    }
+    xhr.onerror = () => reject(new Error('Upload failed - connection dropped'))
+    xhr.send(file)
+  })
+}

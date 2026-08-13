@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { AuthError, fetchIsoTarget, uploadIso, type IsoTargetInfo } from '../api'
+import { AuthError, fetchIsoTarget, uploadIso, uploadWim, type IsoTargetInfo } from '../api'
+
+const isWimName = (n: string) => /\.(wim|esd|swm)$/i.test(n)
 
 const GB = 1024 ** 3
 const WARN_PCT = 80
@@ -33,10 +35,14 @@ export default function UploadIso({ onClose, onTask, onAuthError }: {
     return () => { stop = true }
   }, [onAuthError])
 
+  // A WIM goes to the 5TB image library (plenty of room), not the ISO storage,
+  // so the ISO-storage capacity guard doesn't apply to it.
+  const isWim = !!file && isWimName(file.name)
+
   // Recompute the post-upload usage directly from bytes (freeBytes + pctUsed
   // together imply the storage's total size) rather than approximating.
   const willFit = (() => {
-    if (!target || target === 'loading' || !file) {
+    if (isWim || !target || target === 'loading' || !file) {
       return { pct: target && target !== 'loading' ? target.pctUsed : 0, blocked: false }
     }
     const totalBytes = target.freeBytes / (1 - target.pctUsed / 100 || 1)
@@ -48,12 +54,18 @@ export default function UploadIso({ onClose, onTask, onAuthError }: {
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    if (!target || target === 'loading' || !file) return
-    if (willFit.blocked) return
+    if (!file) return
     setPct(0)
     try {
-      const upid = await uploadIso(file, setPct)
-      onTask(upid, target.node, `Uploading ${file.name}`)
+      if (isWim) {
+        // WIM -> streamed onto the 5TB drive's Uploads/ folder; shows up in the image library.
+        await uploadWim(file, setPct)
+      } else {
+        if (!target || target === 'loading') return
+        if (willFit.blocked) return
+        const upid = await uploadIso(file, setPct)
+        onTask(upid, target.node, `Uploading ${file.name}`)
+      }
       onClose()
     } catch (err) {
       if (err instanceof AuthError) { onAuthError(); return }
@@ -62,6 +74,7 @@ export default function UploadIso({ onClose, onTask, onAuthError }: {
     }
   }
 
+  // The file picker works even before ISO storage is known - WIMs don't need it.
   const ready = target !== null && target !== 'loading'
 
   return (
@@ -73,20 +86,21 @@ export default function UploadIso({ onClose, onTask, onAuthError }: {
         </div>
 
         <p className="muted">
-          Adds to the shared image folder everyone picks from when spinning up a machine.
+          <strong>ISOs</strong> join the boot library everyone picks from.
+          <strong> WIMs</strong> go to the 5TB image library and appear under "Image library".
         </p>
 
         {target === 'loading' && <p className="muted">Checking image storage…</p>}
-        {target === null && !error && <p className="error" role="alert">⛔ No image storage is reachable right now - try again shortly.</p>}
+        {target === null && !error && !isWim && <p className="error" role="alert">⛔ No ISO storage is reachable right now - try again shortly (WIM uploads still work).</p>}
 
-        {ready && (
+        {target !== 'loading' && (
           <>
             <label>
-              ISO file
+              ISO or WIM file
               <input
                 ref={inputRef}
                 type="file"
-                accept=".iso"
+                accept=".iso,.wim,.esd,.swm"
                 onChange={e => setFile(e.target.files?.[0] ?? null)}
                 disabled={pct !== null}
                 required
@@ -96,6 +110,7 @@ export default function UploadIso({ onClose, onTask, onAuthError }: {
             {file && (
               <p className="muted">
                 {file.name} - {(file.size / GB).toFixed(2)} GB
+                {isWim ? ' · → 5TB image library' : ' · → boot library'}
               </p>
             )}
 
@@ -129,8 +144,8 @@ export default function UploadIso({ onClose, onTask, onAuthError }: {
           <button type="button" className="ghost" onClick={onClose} disabled={pct !== null && pct < 100}>
             {pct !== null && pct < 100 ? 'Uploading…' : 'Cancel'}
           </button>
-          <button type="submit" className="primary" disabled={!ready || !file || pct !== null || willFit.blocked}>
-            Upload
+          <button type="submit" className="primary" disabled={!file || pct !== null || (!isWim && (!ready || willFit.blocked))}>
+            {isWim ? 'Upload to library' : 'Upload'}
           </button>
         </div>
       </form>
