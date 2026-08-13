@@ -236,6 +236,30 @@ else
   warn "no active images-capable storage here yet - the Proxbox won't place machines until one is active."
 fi
 
+# Shared ISO library over NFS. The cluster keeps ONE physical copy of the ISOs
+# (and the WinPE deploy ISO) on the ISO host and NFS-exports it; every node
+# auto-mounts it at /var/lib/vz/template/iso so they all see the same images.
+# A freshly-joined node doesn't inherit this (it's per-node fstab, not cluster
+# config), so without it this node couldn't see any ISO. We add it here.
+ISO_HOST="$(jq -r '.iso_nfs_host // .nodes.pve1 // empty' "$CONFIG" 2>/dev/null)"
+if [[ -n "$ISO_HOST" && "$ISO_HOST" != "$SELF_IP" ]]; then
+  say "mounting the shared ISO library from ${ISO_HOST} (NFS)"
+  ensure_pkg nfs-common
+  mkdir -p /var/lib/vz/template/iso /var/lib/vz/dump
+  # ISOs (the app's images + WinPE deploy ISO) and backups, matching the other nodes.
+  grep -qE '[[:space:]]/var/lib/vz/template/iso[[:space:]]+nfs' /etc/fstab \
+    || echo "${ISO_HOST}:/ /var/lib/vz/template/iso nfs4 rw,vers=4.2,_netdev,nofail,x-systemd.automount 0 0" >> /etc/fstab
+  grep -qE '[[:space:]]/var/lib/vz/dump[[:space:]]+nfs' /etc/fstab \
+    || echo "${ISO_HOST}:/.backups /var/lib/vz/dump nfs4 rw,vers=4.2,_netdev,nofail,x-systemd.automount 0 0" >> /etc/fstab
+  systemctl daemon-reload 2>/dev/null || true
+  mount /var/lib/vz/template/iso 2>/dev/null || true
+  if ls /var/lib/vz/template/iso/*.iso >/dev/null 2>&1; then
+    ok "shared ISO library mounted - $(ls /var/lib/vz/template/iso/*.iso 2>/dev/null | wc -l) ISOs now visible here, same as the other nodes"
+  else
+    warn "couldn't confirm the ISO mount from ${ISO_HOST} - the node still joined; check 'mount /var/lib/vz/template/iso' and that ${ISO_HOST} exports it to this subnet."
+  fi
+fi
+
 # The decisive check: look at the node through the SAME API and the SAME lens the
 # Proxbox uses. The app reads /cluster/resources and treats a node as a real
 # placement target when it appears as type=node AND has a storage whose content
