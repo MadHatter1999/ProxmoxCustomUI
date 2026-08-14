@@ -353,6 +353,40 @@ async function finalizeWhenDeployed(node: string, vmid: number, cfgVolid: string
   console.error(`[deploy-wim] VM ${vmid} never powered off - config ISO ${cfgVolid} left in place for inspection`)
 }
 
+/**
+ * Pick the best node to spin a deploy VM up on RIGHT NOW: the online node with
+ * the most free RAM that also has an images storage the disk fits on (under 90%).
+ * The WinPE + config ISOs are NFS-shared from the ISO host, and the WIM share is
+ * reachable over the network, so a deploy can run on ANY node - no reason to pile
+ * everything on pve1. Returns the node and the storage to build the disk on.
+ */
+async function pickDeployNode(memMb: number, diskGb: number, cores: number): Promise<{ node: string; storage: string }> {
+  const data = (await elevatedGet('/api2/json/cluster/resources')) as Array<Record<string, unknown>>
+  const GB = 1024 ** 3
+  const needMem = memMb * 1024 * 1024
+  const needDisk = diskGb * GB
+  const HEADROOM = 2 * GB          // never squeeze a host to its last byte of RAM
+  const CAP = 0.9                  // a new disk must not push a storage past 90%
+  const nodes = data.filter(r => r.type === 'node' && r.status === 'online')
+  const storages = data.filter(r => r.type === 'storage' && String(r.content ?? '').includes('images') && Number(r.maxdisk ?? 0) > 0)
+  const fits = (s: Record<string, unknown>) => (Number(s.disk ?? 0) + needDisk) / Number(s.maxdisk ?? 1) <= CAP
+  const cands: Array<{ node: string; storage: string; freeMem: number }> = []
+  for (const n of nodes) {
+    const node = String(n.node)
+    if (Number(n.maxcpu ?? 0) < cores) continue
+    const freeMem = Number(n.maxmem ?? 0) - Number(n.mem ?? 0) - HEADROOM
+    if (freeMem < needMem) continue
+    const onNode = storages.filter(s => s.node === node && fits(s))
+    if (!onNode.length) continue
+    // Prefer plain 'local' (dir → raw disk, simplest for WinPE); else any that fits.
+    const pick = onNode.find(s => s.storage === 'local') ?? onNode[0]
+    cands.push({ node, storage: String(pick.storage), freeMem })
+  }
+  cands.sort((a, b) => b.freeMem - a.freeMem)
+  if (!cands.length) throw new Error('No node has room for this machine right now - try a smaller disk, or free something up.')
+  return { node: cands[0].node, storage: cands[0].storage }
+}
+
 app.post('/svc/deploy-wim', async (req, res) => {
   if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
   if (!ROOT_TOKEN) return res.status(500).json({ message: 'Server has no PVE_ROOT_TOKEN configured' })
@@ -368,23 +402,27 @@ app.post('/svc/deploy-wim', async (req, res) => {
 
   try {
     const vmid = Number(await elevatedGet('/api2/json/cluster/nextid'))
+    // Config ISO is uploaded to the ISO host (pve1); local:iso is NFS-shared to
+    // every node, so it - and the WinPE ISO - resolve on whatever node we land on.
     const cfgVolid = await buildAndUploadConfigIso(vmid, wim, wimIndex)
-    await elevatedRequest('POST', `/api2/json/nodes/${DEPLOY_NODE}/qemu`, {
+    const { node, storage } = await pickDeployNode(memory, disk, cores)
+    console.log(`[deploy-wim] ${name} (vmid ${vmid}) -> node ${node}, storage ${storage}`)
+    await elevatedRequest('POST', `/api2/json/nodes/${node}/qemu`, {
       vmid, name, machine: 'q35', bios: 'ovmf', cores, sockets: 1, memory, ostype: 'win11',
       cpu: 'x86-64-v2-AES', scsihw: 'virtio-scsi-single', net0: 'e1000,bridge=vmbr0,firewall=1',
-      efidisk0: `${DEPLOY_STORAGE}:1,efitype=4m,pre-enrolled-keys=1`,
-      tpmstate0: `${DEPLOY_STORAGE}:1,version=v2.0`,
-      ide0: `${DEPLOY_STORAGE}:${disk}`,
+      efidisk0: `${storage}:1,efitype=4m,pre-enrolled-keys=1`,
+      tpmstate0: `${storage}:1,version=v2.0`,
+      ide0: `${storage}:${disk}`,
       ide2: `${WINPE_ISO},media=cdrom`,
       ide3: `${cfgVolid},media=cdrom`,
       boot: 'order=ide2;ide0',
       description
     })
-    await elevatedRequest('POST', `/api2/json/nodes/${DEPLOY_NODE}/qemu/${vmid}/status/start`)
+    await elevatedRequest('POST', `/api2/json/nodes/${node}/qemu/${vmid}/status/start`)
     // Fire-and-forget: clear the boot prompt, then finalize once WinPE powers off.
-    clearBootPrompt(DEPLOY_NODE, vmid).catch(() => {})
-    finalizeWhenDeployed(DEPLOY_NODE, vmid, cfgVolid).catch(err => console.error('[deploy-wim]', err))
-    res.json({ vmid, node: DEPLOY_NODE })
+    clearBootPrompt(node, vmid).catch(() => {})
+    finalizeWhenDeployed(node, vmid, cfgVolid).catch(err => console.error('[deploy-wim]', err))
+    res.json({ vmid, node })
   } catch (err) {
     res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
   }
