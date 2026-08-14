@@ -91,6 +91,18 @@ export default function NodesPanel({ initialResources, onClose, onAuthError }: {
     .filter(r => r.type === 'storage')
     .sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''))
 
+  // A node's real VM-disk capacity is the sum of its storages, not just the root
+  // filesystem the node resource reports - otherwise a node with a 1.7TB thinpool
+  // still reads "94GB". Sum each node's storages for an honest Disk meter.
+  const diskByNode: Record<string, { used: number; total: number }> = {}
+  for (const s of storages) {
+    if (s.node && s.maxdisk) {
+      const e = (diskByNode[s.node] ??= { used: 0, total: 0 })
+      e.used += s.disk ?? 0
+      e.total += s.maxdisk
+    }
+  }
+
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal modal-wide">
@@ -116,7 +128,7 @@ export default function NodesPanel({ initialResources, onClose, onAuthError }: {
               </div>
               <Bar label="CPU" used={(n.cpu ?? 0) * (n.maxcpu ?? 1)} max={n.maxcpu} />
               <Bar label="RAM" used={n.mem} max={n.maxmem} />
-              <Bar label="Disk" used={n.disk} max={n.maxdisk} />
+              <Bar label="Disk" used={diskByNode[n.node ?? '']?.used ?? n.disk} max={diskByNode[n.node ?? '']?.total ?? n.maxdisk} />
             </div>
           ))}
           {nodes.length === 0 && <p className="muted">No node data yet.</p>}
