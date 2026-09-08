@@ -154,7 +154,7 @@ export default function NewDevice({ catalog, onClose, onCreated, onAuthError }: 
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <form className="modal modal-wide" onSubmit={submit}>
+      <form className="modal modal-wide device-create-modal" onSubmit={submit}>
         <div className="modal-head">
           <h2>Create device</h2>
           <div className="console-head-actions">

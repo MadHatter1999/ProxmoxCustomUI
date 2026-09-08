@@ -473,7 +473,10 @@ button.small { padding: 5px 12px; font-size: 0.78rem; }
 .device-counts .seg.static { opacity: 0.75; }
 
 /* ---- create device ---- */
-.device-create-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.85fr); gap: 18px; }
+/* Device create needs more room than the stock wide modal - form + live plan
+   side by side, with every advanced option readable rather than cramped. */
+.device-create-modal { width: min(1200px, 96vw); }
+.device-create-body { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr); gap: 18px; }
 .device-create-form { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .device-plan {
   background: var(--glass); border: 1px solid var(--edge); border-radius: var(--r-md);
