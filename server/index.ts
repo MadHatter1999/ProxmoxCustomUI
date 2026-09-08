@@ -191,6 +191,18 @@ app.get('/svc/iso-target', async (req, res) => {
   }
 })
 
+// Which "node/storage" combos are HDD-backed (slow), so the client's fresh-install
+// placement can fill SSDs before spinners too - same tiering the deploy path uses.
+app.get('/svc/storage-tiers', async (req, res) => {
+  if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })
+  try {
+    const slow = await getSlowStorages()
+    res.json({ slow: [...slow] })
+  } catch (err) {
+    res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
+  }
+})
+
 // ---- GhostDrive WIM library ------------------------------------------------
 // The 5TB image drive, mounted READ-ONLY on this box over CIFS. We walk it
 // recursively and hand the app a FLAT list of every WIM, so staff pick an image
@@ -353,15 +365,69 @@ async function finalizeWhenDeployed(node: string, vmid: number, cfgVolid: string
   console.error(`[deploy-wim] VM ${vmid} never powered off - config ISO ${cfgVolid} left in place for inspection`)
 }
 
+// ---- Storage speed tiers (SSD vs HDD) -------------------------------------
+// cluster/resources never says whether a storage is SSD- or HDD-backed, but
+// placement should fill the fast disks before the slow spinners. We work it out
+// from the PVE disk API: for each lvmthin storage, find the VG's backing disk(s)
+// and check their media type; a storage is "slow" if any backing disk is a
+// spinner (type 'hdd'). Keyed as "node/storage" since the same storage name
+// (local-lvm) is SSD on some nodes and HDD on others. Cached 10 min, with a
+// static fallback for the known spinners so a probe hiccup never silently sends
+// every deploy back onto the HDD nodes.
+const SLOW_TTL_MS = 600_000
+// A `dir` storage has no VG to trace, so the LVM probe can't classify it and it
+// would default to "fast". These have to be stated. pve6/local is /var/lib/vz on
+// pve6's root LV, which lives on its 5400rpm sda - the NVMe there is local-nvme.
+const SLOW_DIRS = new Set(['pve6/local'])
+const SLOW_FALLBACK = new Set(['pve6/local-lvm', 'pve8/local-lvm', ...SLOW_DIRS])
+let slowCache: { at: number; data: Set<string> } | null = null
+
+async function getSlowStorages(): Promise<Set<string>> {
+  if (slowCache && Date.now() - slowCache.at < SLOW_TTL_MS) return slowCache.data
+  const slow = new Set<string>()
+  try {
+    const storages = (await elevatedGet('/api2/json/storage')) as Array<Record<string, unknown>>
+    const lvmthin = storages.filter(s => s.type === 'lvmthin' && s.vgname)
+    const nodesData = (await elevatedGet('/api2/json/cluster/resources?type=node')) as Array<Record<string, unknown>>
+    const online = nodesData.filter(n => n.status === 'online').map(n => String(n.node))
+    for (const node of online) {
+      let disks: Array<{ devpath?: string; type?: string }>
+      let lvm: { children?: Array<{ name?: string; children?: Array<{ name?: string }> }> }
+      try {
+        disks = (await elevatedGet(`/api2/json/nodes/${node}/disks/list`)) as typeof disks
+        lvm = (await elevatedGet(`/api2/json/nodes/${node}/disks/lvm`)) as typeof lvm
+      } catch { continue }
+      // A leaf like /dev/sda3 belongs to the base disk /dev/sda (a devpath prefix).
+      const isHddLeaf = (leaf: string) => disks.some(d => d.devpath && leaf.startsWith(d.devpath) && d.type === 'hdd')
+      const vgHasHdd: Record<string, boolean> = {}
+      for (const vg of lvm.children ?? []) {
+        vgHasHdd[String(vg.name ?? '')] = (vg.children ?? []).some(c => isHddLeaf(String(c.name ?? '')))
+      }
+      for (const s of lvmthin) {
+        const nodesField = String(s.nodes ?? '')
+        if (nodesField && !nodesField.split(',').includes(node)) continue
+        if (vgHasHdd[String(s.vgname)]) slow.add(`${node}/${String(s.storage)}`)
+      }
+    }
+  } catch { /* whole probe failed - fall through to the static fallback */ }
+  // The probe can only prove LVM-backed storages; fold in the dir ones it can't see.
+  if (slow.size) for (const s of SLOW_DIRS) slow.add(s)
+  const data = slow.size ? slow : SLOW_FALLBACK
+  slowCache = { at: Date.now(), data }
+  return data
+}
+
 /**
- * Pick the best node to spin a deploy VM up on RIGHT NOW: the online node with
- * the most free RAM that also has an images storage the disk fits on (under 90%).
- * The WinPE + config ISOs are NFS-shared from the ISO host, and the WIM share is
- * reachable over the network, so a deploy can run on ANY node - no reason to pile
- * everything on pve1. Returns the node and the storage to build the disk on.
+ * Pick the best node to spin a deploy VM up on RIGHT NOW: an online node that
+ * has an images storage the disk fits on (under 90%), preferring SSD-backed
+ * storage over HDD and, within a tier, the node with the most free RAM. A slow
+ * (spinner) storage is only chosen when no SSD node has room. The WinPE + config
+ * ISOs are NFS-shared from the ISO host and the WIM share is reachable over the
+ * network, so a deploy can run on ANY node. Returns node + storage for the disk.
  */
 async function pickDeployNode(memMb: number, diskGb: number, cores: number): Promise<{ node: string; storage: string }> {
   const data = (await elevatedGet('/api2/json/cluster/resources')) as Array<Record<string, unknown>>
+  const slow = await getSlowStorages()
   const GB = 1024 ** 3
   const needMem = memMb * 1024 * 1024
   const needDisk = diskGb * GB
@@ -370,7 +436,7 @@ async function pickDeployNode(memMb: number, diskGb: number, cores: number): Pro
   const nodes = data.filter(r => r.type === 'node' && r.status === 'online')
   const storages = data.filter(r => r.type === 'storage' && String(r.content ?? '').includes('images') && Number(r.maxdisk ?? 0) > 0)
   const fits = (s: Record<string, unknown>) => (Number(s.disk ?? 0) + needDisk) / Number(s.maxdisk ?? 1) <= CAP
-  const cands: Array<{ node: string; storage: string; freeMem: number }> = []
+  const cands: Array<{ node: string; storage: string; freeMem: number; slow: boolean }> = []
   for (const n of nodes) {
     const node = String(n.node)
     if (Number(n.maxcpu ?? 0) < cores) continue
@@ -378,14 +444,52 @@ async function pickDeployNode(memMb: number, diskGb: number, cores: number): Pro
     if (freeMem < needMem) continue
     const onNode = storages.filter(s => s.node === node && fits(s))
     if (!onNode.length) continue
-    // Prefer plain 'local' (dir → raw disk, simplest for WinPE); else any that fits.
-    const pick = onNode.find(s => s.storage === 'local') ?? onNode[0]
-    cands.push({ node, storage: String(pick.storage), freeMem })
+    // Prefer the node's SSD storages; only fall back to its spinners if that's all it has.
+    const fast = onNode.filter(s => !slow.has(`${node}/${String(s.storage)}`))
+    const pool = fast.length ? fast : onNode
+    // Within the chosen tier, prefer plain 'local' (dir → raw disk, simplest for WinPE).
+    const pick = pool.find(s => s.storage === 'local') ?? pool[0]
+    cands.push({ node, storage: String(pick.storage), freeMem, slow: fast.length === 0 })
   }
-  cands.sort((a, b) => b.freeMem - a.freeMem)
+  // SSD nodes first, then most free RAM within a tier; spinners are last resort.
+  cands.sort((a, b) => (a.slow === b.slow ? b.freeMem - a.freeMem : a.slow ? 1 : -1))
   if (!cands.length) throw new Error('No node has room for this machine right now - try a smaller disk, or free something up.')
   return { node: cands[0].node, storage: cands[0].storage }
 }
+
+/**
+ * Safety net: the finalize above runs in-process, so if the app restarts while a
+ * deploy is mid-flight, that VM can be left booted CD-first with the WinPE ISO
+ * attached - which re-images it on every single boot. This scans for any deploy
+ * VM that finished (stopped) but still has the WinPE CD, and finalizes it: strips
+ * the CDs, sets boot to disk, deletes the config ISO. Runs at startup and on a
+ * timer, so an orphaned deploy can never sit in that re-image loop.
+ */
+async function recoverOrphanedDeploys(): Promise<void> {
+  if (!ROOT_TOKEN) return
+  let vms: Array<Record<string, unknown>>
+  try { vms = (await elevatedGet('/api2/json/cluster/resources?type=vm')) as Array<Record<string, unknown>> }
+  catch { return }
+  for (const vm of vms) {
+    if (vm.type !== 'qemu') continue
+    const node = String(vm.node ?? ''), vmid = Number(vm.vmid ?? 0)
+    if (!node || !vmid) continue
+    try {
+      const cfg = (await elevatedGet(`/api2/json/nodes/${node}/qemu/${vmid}/config`)) as { ide2?: string; ide3?: string }
+      if (typeof cfg.ide2 !== 'string' || !cfg.ide2.includes('proxbox-winpe')) continue
+      const st = (await elevatedGet(`/api2/json/nodes/${node}/qemu/${vmid}/status/current`)) as { status?: string }
+      if (st.status !== 'stopped') continue // leave an in-progress apply alone
+      console.log(`[deploy-wim] recovering orphaned deploy VM ${vmid} on ${node} (was stuck CD-first)`)
+      await elevatedRequest('PUT', `/api2/json/nodes/${node}/qemu/${vmid}/config`, { delete: 'ide2,ide3' })
+      await elevatedRequest('PUT', `/api2/json/nodes/${node}/qemu/${vmid}/config`, { boot: 'order=ide0' })
+      const cfgVolid = cfg.ide3?.split(',')[0]
+      if (cfgVolid) await elevatedRequest('DELETE', `/api2/json/nodes/${node}/storage/${DEPLOY_STORAGE}/content/${encodeURIComponent(cfgVolid)}`).catch(() => {})
+      await elevatedRequest('POST', `/api2/json/nodes/${node}/qemu/${vmid}/status/start`)
+    } catch { /* skip this VM, try the rest */ }
+  }
+}
+setTimeout(() => { recoverOrphanedDeploys().catch(() => {}) }, 15000)
+setInterval(() => { recoverOrphanedDeploys().catch(() => {}) }, 180000)
 
 app.post('/svc/deploy-wim', async (req, res) => {
   if (!(await isSignedIn(req.headers.cookie))) return res.status(401).json({ message: 'Not signed in' })

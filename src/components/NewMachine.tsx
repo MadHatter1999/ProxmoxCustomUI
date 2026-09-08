@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { apiElevated, AuthError, deployWim, fetchWims, type DeployJob, type WimImage } from '../api'
+import { apiElevated, AuthError, deployWim, fetchStorageTiers, fetchWims, type DeployJob, type WimImage } from '../api'
 import type { ClusterResource, IsoVolume } from '../types'
 import { place, SIZES, type SizePreset } from '../placement'
 import DeployProgress from './DeployProgress'
@@ -90,7 +90,21 @@ export default function NewMachine({ resources, username, onClose, onTask, onAut
     return isoNodes[image] ?? []
   }, [image, isoNodes])
 
-  const placement = useMemo(() => place(resources, size, allowedNodes), [resources, size, allowedNodes])
+  // Which storages are HDD-backed, so placement fills SSDs first. Fetched once;
+  // [] until it loads (and on any error) so placement still works, just untiered.
+  const [slowStorages, setSlowStorages] = useState<string[]>([])
+  useEffect(() => {
+    let stop = false
+    fetchStorageTiers()
+      .then(s => { if (!stop) setSlowStorages(s) })
+      .catch(err => { if (err instanceof AuthError) onAuthError() })
+    return () => { stop = true }
+  }, [onAuthError])
+
+  const placement = useMemo(
+    () => place(resources, size, allowedNodes, slowStorages),
+    [resources, size, allowedNodes, slowStorages]
+  )
 
   // Templates are "ready to use" images; the shared img folder supplies installers.
   const templates = useMemo(

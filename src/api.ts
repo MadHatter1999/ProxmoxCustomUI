@@ -148,6 +148,27 @@ export async function fetchIsoTarget(): Promise<IsoTargetInfo | null> {
   return r.json()
 }
 
+/**
+ * The set of "node/storage" combos that are HDD-backed (slow), so new-machine
+ * placement fills SSDs first. Fail-open: any hiccup returns [] (no tiering) so
+ * a probe problem can never block creating a machine.
+ */
+export async function fetchStorageTiers(): Promise<string[]> {
+  try {
+    const r = await fetch('/svc/storage-tiers')
+    if (r.status === 401) {
+      clearSession()
+      throw new AuthError()
+    }
+    if (!r.ok) return []
+    const j = await r.json()
+    return Array.isArray(j.slow) ? (j.slow as string[]) : []
+  } catch (err) {
+    if (err instanceof AuthError) throw err
+    return []
+  }
+}
+
 export interface WimImage {
   name: string
   path: string

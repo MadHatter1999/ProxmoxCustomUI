@@ -31,13 +31,22 @@ const HEADROOM_RAM_GB = 2 // never squeeze a host to its last byte
 const STORAGE_CAP = 0.9 // a new disk must not push a storage past 90%
 
 /**
- * Pick the node + storage for a new machine across EVERY online node,
- * favouring the one with the most free RAM and its least-full image storage.
+ * Pick the node + storage for a new machine across EVERY online node. Fills
+ * SSD-backed storage before slow HDD spinners, and within a tier favours the
+ * node with the most free RAM and its least-full image storage. `slowStorages`
+ * is the set of "node/storage" combos known to be HDD-backed (from the server's
+ * /svc/storage-tiers); a spinner is only chosen when no SSD node has room.
  * `allowedNodes` (when given) restricts to nodes that can actually see the
  * chosen image - the app mediates; the tech never has to care where it lands.
  * Returns a human explanation when nothing fits.
  */
-export function place(resources: ClusterResource[], size: SizePreset, allowedNodes?: string[]): PlaceResult {
+export function place(
+  resources: ClusterResource[],
+  size: SizePreset,
+  allowedNodes?: string[],
+  slowStorages?: Iterable<string>
+): PlaceResult {
+  const slow = new Set(slowStorages ?? [])
   const nodes = resources.filter(r => r.type === 'node' && r.status === 'online')
   const storages = resources.filter(r => r.type === 'storage' && (r.content ?? '').includes('images'))
 
@@ -49,6 +58,7 @@ export function place(resources: ClusterResource[], size: SizePreset, allowedNod
     freeMem: number
     storage: string
     storagePctAfter: number
+    slow: boolean
   }
   const candidates: Candidate[] = []
   const problems: string[] = []
@@ -72,7 +82,8 @@ export function place(resources: ClusterResource[], size: SizePreset, allowedNod
       .filter(s => s.node === n.node && s.maxdisk)
       .map(s => ({
         storage: s.storage!,
-        pctAfter: ((s.disk ?? 0) + needDisk) / (s.maxdisk ?? 1)
+        pctAfter: ((s.disk ?? 0) + needDisk) / (s.maxdisk ?? 1),
+        slow: slow.has(`${n.node}/${s.storage}`)
       }))
       .filter(s => s.pctAfter <= STORAGE_CAP)
       .sort((a, b) => a.pctAfter - b.pctAfter)
@@ -80,11 +91,15 @@ export function place(resources: ClusterResource[], size: SizePreset, allowedNod
       problems.push(`${n.node}: no storage with ${size.diskGb} GB safely free`)
       continue
     }
+    // Prefer an SSD storage on this node; only fall back to a spinner if that's all it has.
+    const fast = nodeStorages.filter(s => !s.slow)
+    const chosen = (fast.length ? fast : nodeStorages)[0]
     candidates.push({
       node: n.node!,
       freeMem,
-      storage: nodeStorages[0].storage,
-      storagePctAfter: nodeStorages[0].pctAfter
+      storage: chosen.storage,
+      storagePctAfter: chosen.pctAfter,
+      slow: fast.length === 0
     })
   }
 
@@ -96,7 +111,8 @@ export function place(resources: ClusterResource[], size: SizePreset, allowedNod
     }
   }
 
-  candidates.sort((a, b) => b.freeMem - a.freeMem)
+  // SSD nodes first, then most free RAM within a tier; spinners are the last resort.
+  candidates.sort((a, b) => (a.slow === b.slow ? b.freeMem - a.freeMem : a.slow ? 1 : -1))
   return { ok: true, placement: { node: candidates[0].node, storage: candidates[0].storage } }
 }
 
