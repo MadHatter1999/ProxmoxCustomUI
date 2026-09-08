@@ -6,3 +6,4 @@ dev-dist/
 .env
 .\scripts\nodes.json
 server/android/agent-client.ts
+.android-state/

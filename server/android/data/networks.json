@@ -1,0 +1,52 @@
+[
+  {
+    "id": "default",
+    "name": "Default (lab LAN)",
+    "bridge": "vmbr0",
+    "firewall": true,
+    "internet": true,
+    "description": "Same bridge every ProxBox VM already uses. The device gets a lab LAN address and can be reached by ADB from the controller."
+  },
+  {
+    "id": "lan",
+    "name": "LAN",
+    "bridge": "vmbr0",
+    "firewall": false,
+    "internet": true,
+    "description": "Lab LAN with the Proxmox firewall off - for devices that need to be reachable from anything on the subnet."
+  },
+  {
+    "id": "internet-only",
+    "name": "Internet only",
+    "bridge": "vmbr0",
+    "firewall": true,
+    "internet": true,
+    "description": "Out to the internet, blocked from the rest of the lab. Enforced by a Proxmox firewall group, not by hope.",
+    "labIsolated": true
+  },
+  {
+    "id": "nat",
+    "name": "NAT",
+    "bridge": "vmbr0",
+    "firewall": true,
+    "internet": true,
+    "description": "Behind NAT, no inbound. ADB is reached through the node agent rather than directly."
+  },
+  {
+    "id": "no-internet",
+    "name": "No internet",
+    "bridge": "vmbr0",
+    "firewall": true,
+    "internet": false,
+    "description": "Lab LAN, egress blocked. For testing what an app does with no connectivity."
+  },
+  {
+    "id": "isolated-lab",
+    "name": "Isolated lab",
+    "bridge": "vmbr0",
+    "firewall": true,
+    "internet": false,
+    "labIsolated": true,
+    "description": "A private VLAN shared by the devices in one lab. They see each other and nothing else. The lab id becomes the VLAN tag."
+  }
+]

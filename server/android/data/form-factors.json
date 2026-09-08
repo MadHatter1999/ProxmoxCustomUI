@@ -1,0 +1,95 @@
+[
+  {
+    "id": "phone",
+    "name": "Phone",
+    "category": "handheld",
+    "characteristic": "default",
+    "defaults": { "orientation": "portrait", "width": 1080, "height": 2400, "dpi": 420, "ramMb": 4096, "cpu": 4, "storageGb": 16 },
+    "capabilities": { "touch": true, "multitouch": true, "rotation": true, "accelerometer": true, "gyroscope": true, "gps": true, "camera_front": true, "camera_back": true, "microphone": true, "speaker": true, "telephony": true, "keyboard": true }
+  },
+  {
+    "id": "tablet_small",
+    "name": "Small tablet (7-9\")",
+    "category": "tablet",
+    "characteristic": "tablet",
+    "defaults": { "orientation": "portrait", "width": 1200, "height": 1920, "dpi": 320, "ramMb": 4096, "cpu": 4, "storageGb": 16 },
+    "capabilities": { "touch": true, "multitouch": true, "rotation": true, "accelerometer": true, "gyroscope": true, "gps": true, "camera_front": true, "camera_back": true, "microphone": true, "speaker": true, "keyboard": true, "mouse": true }
+  },
+  {
+    "id": "tablet_large",
+    "name": "Large tablet (10-13\")",
+    "category": "tablet",
+    "characteristic": "tablet",
+    "defaults": { "orientation": "landscape", "width": 2560, "height": 1600, "dpi": 320, "ramMb": 6144, "cpu": 4, "storageGb": 32 },
+    "capabilities": { "touch": true, "multitouch": true, "rotation": true, "accelerometer": true, "gyroscope": true, "gps": true, "camera_front": true, "camera_back": true, "microphone": true, "speaker": true, "keyboard": true, "mouse": true }
+  },
+  {
+    "id": "foldable",
+    "name": "Foldable",
+    "category": "handheld",
+    "characteristic": "default",
+    "defaults": { "orientation": "portrait", "width": 1768, "height": 2208, "dpi": 420, "ramMb": 8192, "cpu": 4, "storageGb": 32 },
+    "capabilities": { "touch": true, "multitouch": true, "rotation": true, "fold": true, "accelerometer": true, "gyroscope": true, "gps": true, "camera_front": true, "camera_back": true, "microphone": true, "speaker": true, "telephony": true, "keyboard": true },
+    "notes": "Fold state is only simulated by runtimes that expose it (AVD does; plain QEMU does not)."
+  },
+  {
+    "id": "kiosk",
+    "name": "Kiosk / wall panel",
+    "category": "embedded",
+    "characteristic": "tablet",
+    "defaults": { "orientation": "landscape", "width": 1920, "height": 1080, "dpi": 160, "ramMb": 2048, "cpu": 2, "storageGb": 8 },
+    "capabilities": { "touch": true, "multitouch": true, "keyboard": true, "mouse": true, "speaker": true, "rotation": false }
+  },
+  {
+    "id": "pos",
+    "name": "POS terminal",
+    "category": "embedded",
+    "characteristic": "tablet",
+    "defaults": { "orientation": "landscape", "width": 1280, "height": 800, "dpi": 160, "ramMb": 2048, "cpu": 2, "storageGb": 8 },
+    "capabilities": { "touch": true, "multitouch": true, "keyboard": true, "speaker": true, "nfc": false, "rotation": false },
+    "notes": "Virtual POS devices cannot emulate a card reader, printer or real NFC element - those are physical-only."
+  },
+  {
+    "id": "tv",
+    "name": "Android TV",
+    "category": "tv",
+    "characteristic": "tv",
+    "defaults": { "orientation": "landscape", "width": 1920, "height": 1080, "dpi": 320, "ramMb": 2048, "cpu": 2, "storageGb": 8 },
+    "capabilities": { "touch": false, "multitouch": false, "dpad": true, "keyboard": true, "speaker": true, "microphone": true, "rotation": false }
+  },
+  {
+    "id": "automotive",
+    "name": "Android Automotive",
+    "category": "vehicle",
+    "characteristic": "automotive",
+    "defaults": { "orientation": "landscape", "width": 1280, "height": 800, "dpi": 160, "ramMb": 4096, "cpu": 4, "storageGb": 16 },
+    "capabilities": { "touch": true, "multitouch": true, "gps": true, "speaker": true, "microphone": true, "rotation": false },
+    "notes": "Automotive images expose vehicle HAL properties; only the AVD runtime simulates them."
+  },
+  {
+    "id": "wear",
+    "name": "Wear OS",
+    "category": "wearable",
+    "characteristic": "watch",
+    "defaults": { "orientation": "portrait", "width": 454, "height": 454, "dpi": 320, "ramMb": 1536, "cpu": 2, "storageGb": 4 },
+    "capabilities": { "touch": true, "rotation": false, "accelerometer": true, "gyroscope": true, "speaker": true, "microphone": true, "gps": true }
+  },
+  {
+    "id": "embedded",
+    "name": "Generic embedded display",
+    "category": "embedded",
+    "characteristic": "default",
+    "defaults": { "orientation": "landscape", "width": 1920, "height": 480, "dpi": 160, "ramMb": 2048, "cpu": 2, "storageGb": 8 },
+    "capabilities": { "touch": true, "keyboard": false, "rotation": false },
+    "notes": "Deliberately odd aspect ratios live here - strip displays, instrument clusters, shelf-edge panels."
+  },
+  {
+    "id": "headless",
+    "name": "Headless instance",
+    "category": "other",
+    "characteristic": "default",
+    "defaults": { "orientation": "portrait", "width": 720, "height": 1280, "dpi": 160, "ramMb": 2048, "cpu": 2, "storageGb": 8 },
+    "capabilities": { "touch": false, "adb": true, "rotation": false },
+    "notes": "No display attached: ADB and instrumentation only. Cheapest thing to run at scale."
+  }
+]

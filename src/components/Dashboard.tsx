@@ -4,6 +4,7 @@ import type { ClusterResource, TrackedTask } from '../types'
 import { capacityLine } from '../placement'
 import MachineCard from './MachineCard'
 import NewMachine from './NewMachine'
+import DevicesPanel from './DevicesPanel'
 import NodesPanel from './NodesPanel'
 import TaskLog from './TaskLog'
 import TechsPage from './TechsPage'
@@ -17,6 +18,9 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
   const [showTechs, setShowTechs] = useState(false)
   const [showNodes, setShowNodes] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
+  // Android/physical device subsystem - additive, and inert until a node runs
+  // the agent. Nothing else on this screen depends on it.
+  const [showDevices, setShowDevices] = useState(false)
   const [tasks, setTasks] = useState<TrackedTask[]>([])
   const [refreshTick, setRefreshTick] = useState(0)
 
@@ -74,6 +78,7 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
         </div>
         <div className="topbar-actions">
           <button className="primary" onClick={() => setShowNew(true)}>+ New machine</button>
+          <button onClick={() => setShowDevices(true)}>Devices</button>
           <button onClick={() => setShowUpload(true)}>Upload ISO</button>
           {isRoot && <button onClick={() => setShowNodes(true)}>Nodes</button>}
           {isRoot && <button onClick={() => setShowTechs(true)}>Techs</button>}
@@ -124,6 +129,14 @@ export default function Dashboard({ session, onLogout }: { session: Session; onL
           username={session.username}
           onClose={() => setShowNew(false)}
           onTask={(upid, node, label) => { track(upid, node, label); setShowNew(false) }}
+          onAuthError={onLogout}
+        />
+      )}
+
+      {showDevices && (
+        <DevicesPanel
+          username={session.username}
+          onClose={() => setShowDevices(false)}
           onAuthError={onLogout}
         />
       )}

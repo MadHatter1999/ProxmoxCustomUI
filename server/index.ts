@@ -8,6 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 /// <reference path="./guacamole-lite.d.ts" />
 import GuacamoleLite from 'guacamole-lite'
+import { createAndroidRouter } from './android/routes.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const PVE_HOST = process.env.PVE_HOST ?? 'https://192.168.200.100:8006'
@@ -678,6 +679,13 @@ app.get('/svc/rdp-token', async (req, res) => {
     res.status(502).json({ message: err instanceof Error ? err.message : String(err) })
   }
 })
+
+// ---- Android device subsystem ---------------------------------------------
+// Entirely additive: its own routes under /svc/android, gated by the same
+// isSignedIn check as everything else here, and inert until a node runs the
+// Android agent. Mounted last so it cannot shadow any existing route, but
+// before the static handler and the SPA catch-all below.
+app.use(createAndroidRouter({ isSignedIn }))
 
 const dist = path.resolve(here, '..', 'dist')
 app.use(express.static(dist))

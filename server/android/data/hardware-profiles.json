@@ -1,0 +1,127 @@
+[
+  {
+    "id": "phone-small",
+    "name": "Phone - small",
+    "formFactor": "phone",
+    "display": { "width": 1080, "height": 2340, "dpi": 420, "orientation": "portrait" },
+    "resources": { "cpu": 4, "memoryMb": 4096, "storageGb": 16 },
+    "capabilities": {}
+  },
+  {
+    "id": "phone-large",
+    "name": "Phone - large",
+    "formFactor": "phone",
+    "display": { "width": 1440, "height": 3200, "dpi": 560, "orientation": "portrait" },
+    "resources": { "cpu": 4, "memoryMb": 6144, "storageGb": 32 },
+    "capabilities": {}
+  },
+  {
+    "id": "foldable-book",
+    "name": "Foldable - book style",
+    "formFactor": "foldable",
+    "display": {
+      "width": 1080, "height": 2316, "dpi": 420, "orientation": "portrait",
+      "unfolded": { "width": 1768, "height": 2208, "dpi": 420 }
+    },
+    "resources": { "cpu": 4, "memoryMb": 8192, "storageGb": 32 },
+    "capabilities": { "fold": true }
+  },
+  {
+    "id": "tablet-7",
+    "name": "Tablet - 7 inch",
+    "formFactor": "tablet_small",
+    "display": { "width": 1200, "height": 1920, "dpi": 320, "orientation": "portrait" },
+    "resources": { "cpu": 4, "memoryMb": 4096, "storageGb": 16 },
+    "capabilities": {}
+  },
+  {
+    "id": "tablet-10",
+    "name": "Tablet - 10 inch",
+    "formFactor": "tablet_large",
+    "display": { "width": 1600, "height": 2560, "dpi": 320, "orientation": "portrait" },
+    "resources": { "cpu": 4, "memoryMb": 6144, "storageGb": 32 },
+    "capabilities": {}
+  },
+  {
+    "id": "tablet-10-landscape",
+    "name": "Tablet - 10 inch landscape",
+    "formFactor": "tablet_large",
+    "display": { "width": 2560, "height": 1600, "dpi": 320, "orientation": "landscape" },
+    "resources": { "cpu": 4, "memoryMb": 6144, "storageGb": 32 },
+    "capabilities": {}
+  },
+  {
+    "id": "tablet-13",
+    "name": "Tablet - 13 inch",
+    "formFactor": "tablet_large",
+    "display": { "width": 1848, "height": 2960, "dpi": 240, "orientation": "portrait" },
+    "resources": { "cpu": 8, "memoryMb": 8192, "storageGb": 32 },
+    "capabilities": { "keyboard": true, "mouse": true }
+  },
+  {
+    "id": "tv-1080",
+    "name": "TV - 1080p",
+    "formFactor": "tv",
+    "display": { "width": 1920, "height": 1080, "dpi": 160, "orientation": "landscape" },
+    "resources": { "cpu": 2, "memoryMb": 2048, "storageGb": 8 },
+    "capabilities": {}
+  },
+  {
+    "id": "tv-4k",
+    "name": "TV - 4K",
+    "formFactor": "tv",
+    "display": { "width": 3840, "height": 2160, "dpi": 320, "orientation": "landscape" },
+    "resources": { "cpu": 4, "memoryMb": 4096, "storageGb": 16 },
+    "capabilities": {},
+    "notes": "4K framebuffers are expensive to stream; expect a lower remote-control frame rate."
+  },
+  {
+    "id": "pos-10",
+    "name": "POS terminal - 10 inch",
+    "formFactor": "pos",
+    "display": { "width": 1280, "height": 800, "dpi": 160, "orientation": "landscape" },
+    "resources": { "cpu": 2, "memoryMb": 2048, "storageGb": 8 },
+    "capabilities": {}
+  },
+  {
+    "id": "kiosk-1080",
+    "name": "Kiosk panel - 1080p",
+    "formFactor": "kiosk",
+    "display": { "width": 1920, "height": 1080, "dpi": 160, "orientation": "landscape" },
+    "resources": { "cpu": 2, "memoryMb": 2048, "storageGb": 8 },
+    "capabilities": {}
+  },
+  {
+    "id": "embedded-strip",
+    "name": "Embedded strip display",
+    "formFactor": "embedded",
+    "display": { "width": 1920, "height": 480, "dpi": 160, "orientation": "landscape" },
+    "resources": { "cpu": 2, "memoryMb": 2048, "storageGb": 8 },
+    "capabilities": {},
+    "notes": "The example odd-shape profile: nothing in the backend cares that this is not a normal aspect ratio."
+  },
+  {
+    "id": "automotive-cluster",
+    "name": "Automotive - centre stack",
+    "formFactor": "automotive",
+    "display": { "width": 1280, "height": 800, "dpi": 160, "orientation": "landscape" },
+    "resources": { "cpu": 4, "memoryMb": 4096, "storageGb": 16 },
+    "capabilities": {}
+  },
+  {
+    "id": "wear-round",
+    "name": "Wear OS - round",
+    "formFactor": "wear",
+    "display": { "width": 454, "height": 454, "dpi": 320, "orientation": "portrait" },
+    "resources": { "cpu": 2, "memoryMb": 1536, "storageGb": 4 },
+    "capabilities": {}
+  },
+  {
+    "id": "headless",
+    "name": "Headless",
+    "formFactor": "headless",
+    "display": { "width": 720, "height": 1280, "dpi": 160, "orientation": "portrait" },
+    "resources": { "cpu": 2, "memoryMb": 2048, "storageGb": 8 },
+    "capabilities": {}
+  }
+]

@@ -452,3 +452,71 @@ button.small { padding: 5px 12px; font-size: 0.78rem; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ============================================================
+   Android device subsystem - additive only. Nothing above this
+   line is changed; every selector here is new.
+   ============================================================ */
+
+.device-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
+.device-counts .seg,
+.device-counts .seg.static {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 8px 14px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--edge);
+  color: var(--ink-2); font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em;
+}
+.device-counts .seg strong { font-size: 1.05rem; color: var(--ink); font-weight: 700; }
+.device-counts button.seg { cursor: pointer; }
+.device-counts button.seg:hover { border-color: var(--edge-bright); }
+.device-counts .seg.on { background: var(--glass-strong); border-color: var(--accent-a); color: var(--ink); }
+.device-counts .seg.static { opacity: 0.75; }
+
+/* ---- create device ---- */
+.device-create-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.85fr); gap: 18px; }
+.device-create-form { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.device-plan {
+  background: var(--glass); border: 1px solid var(--edge); border-radius: var(--r-md);
+  padding: 14px; min-width: 0;
+}
+.device-plan .panel-subhead { margin-top: 0; }
+.device-reasons { margin: 8px 0 0; padding-left: 18px; color: var(--ink-2); font-size: 0.82rem; }
+.device-reasons li { margin-bottom: 4px; }
+.device-features { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 10px; }
+.device-features .inline-check { flex-direction: row; align-items: center; gap: 6px; text-transform: capitalize; }
+
+.device-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.82rem; }
+.device-facts dt { color: var(--muted); font-weight: 600; }
+.device-facts dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+
+/* ---- remote control ---- */
+.device-screen-modal { max-width: min(1200px, 96vw); }
+.device-screen-body { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; align-items: start; }
+.device-screen-stage {
+  display: flex; align-items: center; justify-content: center;
+  background: #000; border: 1px solid var(--edge); border-radius: var(--r-md);
+  min-height: 320px; max-height: 68vh; overflow: hidden; outline: none;
+}
+.device-screen-stage:focus-visible { border-color: var(--accent-a); }
+.device-screen-img { max-width: 100%; max-height: 68vh; object-fit: contain; cursor: crosshair; touch-action: none; user-select: none; }
+.device-screen-placeholder { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 40px; text-align: center; }
+.device-screen-side { display: flex; flex-direction: column; gap: 12px; }
+.device-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.device-keys button { padding: 10px 0; font-size: 1rem; }
+.device-tools { display: flex; flex-direction: column; gap: 6px; }
+.device-tools .button-like {
+  display: block; text-align: center; text-decoration: none;
+  padding: 9px 14px; border-radius: var(--r-md);
+  background: var(--glass-strong); border: 1px solid var(--edge);
+  color: var(--ink); font-size: 0.8rem; font-weight: 600;
+}
+.device-tools .button-like:hover { border-color: var(--edge-bright); }
+.device-shell { margin-top: 14px; }
+.device-shell-input { display: flex; gap: 8px; margin-top: 8px; }
+.device-shell-input input { flex: 1; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+
+@media (max-width: 900px) {
+  .device-create-body,
+  .device-screen-body { grid-template-columns: minmax(0, 1fr); }
+  .device-screen-side { flex-direction: row; flex-wrap: wrap; }
+}

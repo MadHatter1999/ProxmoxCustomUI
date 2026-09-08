@@ -1,0 +1,492 @@
+[
+  {
+    "id": "aosp-15-x86_64",
+    "name": "AOSP Android 15",
+    "platform": "android",
+    "androidVersion": "15",
+    "apiLevel": 35,
+    "architecture": "x86_64",
+    "variant": "emulator-system-image",
+    "formFactors": ["phone", "tablet_small", "tablet_large", "foldable", "kiosk", "pos", "embedded", "headless"],
+    "googleServices": false,
+    "support": "supported",
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "mouse": true, "rotation": true,
+      "accelerometer": true, "gyroscope": true, "gps": true, "camera_front": true, "camera_back": true,
+      "microphone": true, "speaker": true, "adb": true, "root": true, "screen_record": true, "fold": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "optional",
+        "preference": 100,
+        "support": "supported",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-35;default;x86_64" },
+        "notes": "Arbitrary width/height/DPI come from the AVD skin - one image serves every form factor here."
+      }
+    ],
+    "notes": "The milestone-1 image: the same bits back both the 1080x2400 phone and the 2560x1600 tablet."
+  },
+  {
+    "id": "aosp-14-x86_64",
+    "name": "AOSP Android 14",
+    "platform": "android",
+    "androidVersion": "14",
+    "apiLevel": 34,
+    "architecture": "x86_64",
+    "variant": "emulator-system-image",
+    "formFactors": ["phone", "tablet_small", "tablet_large", "foldable", "kiosk", "pos", "embedded", "headless"],
+    "googleServices": false,
+    "support": "supported",
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "mouse": true, "rotation": true,
+      "accelerometer": true, "gyroscope": true, "gps": true, "camera_front": true, "camera_back": true,
+      "microphone": true, "speaker": true, "adb": true, "root": true, "screen_record": true, "fold": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "optional",
+        "preference": 100,
+        "support": "supported",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-34;default;x86_64" }
+      }
+    ]
+  },
+  {
+    "id": "google-apis-14-x86_64",
+    "name": "Android 14 (Google APIs)",
+    "platform": "android",
+    "androidVersion": "14",
+    "apiLevel": 34,
+    "architecture": "x86_64",
+    "variant": "emulator-system-image",
+    "formFactors": ["phone", "tablet_small", "tablet_large", "foldable"],
+    "googleServices": true,
+    "playCertified": false,
+    "support": "supported",
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "mouse": true, "rotation": true,
+      "accelerometer": true, "gyroscope": true, "gps": true, "camera_front": true, "camera_back": true,
+      "microphone": true, "speaker": true, "adb": true, "root": true, "screen_record": true,
+      "play_services": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "optional",
+        "preference": 100,
+        "support": "supported",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-34;google_apis;x86_64" }
+      }
+    ],
+    "notes": "Google APIs, not Play Store: GMS is present and rootable. Play-certified images (google_apis_playstore) are not rootable and are covered by their own licence - stage those deliberately, not by default."
+  },
+  {
+    "id": "aosp-13-x86_64",
+    "name": "AOSP Android 13",
+    "platform": "android",
+    "androidVersion": "13",
+    "apiLevel": 33,
+    "architecture": "x86_64",
+    "variant": "emulator-system-image",
+    "formFactors": ["phone", "tablet_small", "tablet_large", "kiosk", "pos", "embedded", "headless"],
+    "googleServices": false,
+    "support": "supported",
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "mouse": true, "rotation": true,
+      "accelerometer": true, "gyroscope": true, "gps": true, "camera_front": true, "camera_back": true,
+      "microphone": true, "speaker": true, "adb": true, "root": true, "screen_record": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "optional",
+        "preference": 100,
+        "support": "supported",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-33;default;x86_64" }
+      }
+    ]
+  },
+  {
+    "id": "aosp-11-x86",
+    "name": "AOSP Android 11",
+    "platform": "android",
+    "androidVersion": "11",
+    "apiLevel": 30,
+    "architecture": "x86",
+    "variant": "emulator-system-image",
+    "formFactors": ["phone", "tablet_small", "tablet_large", "headless"],
+    "googleServices": false,
+    "support": "supported",
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "rotation": true, "accelerometer": true,
+      "gyroscope": true, "gps": true, "camera_front": true, "camera_back": true, "microphone": true,
+      "speaker": true, "adb": true, "root": true, "screen_record": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "optional",
+        "preference": 100,
+        "support": "supported",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-30;default;x86" }
+      }
+    ]
+  },
+  {
+    "id": "aosp-9-x86",
+    "name": "AOSP Android 9 (Pie)",
+    "platform": "android",
+    "androidVersion": "9",
+    "apiLevel": 28,
+    "architecture": "x86",
+    "variant": "emulator-system-image",
+    "formFactors": ["phone", "tablet_small", "headless"],
+    "googleServices": false,
+    "support": "legacy",
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "rotation": true, "accelerometer": true,
+      "gps": true, "camera_front": true, "camera_back": true, "microphone": true, "speaker": true,
+      "adb": true, "root": true, "screen_record": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "optional",
+        "preference": 90,
+        "support": "legacy",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-28;default;x86" }
+      }
+    ],
+    "notes": "Regression-testing image. Modern emulator builds still run it; hardware GPU paths are less reliable, so it defaults to software rendering."
+  },
+  {
+    "id": "aosp-7-x86",
+    "name": "AOSP Android 7.1 (Nougat)",
+    "platform": "android",
+    "androidVersion": "7.1",
+    "apiLevel": 25,
+    "architecture": "x86",
+    "variant": "emulator-system-image",
+    "formFactors": ["phone", "tablet_small", "headless"],
+    "googleServices": false,
+    "support": "legacy",
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "rotation": true, "accelerometer": true,
+      "gps": true, "camera_back": true, "microphone": true, "speaker": true, "adb": true, "root": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "optional",
+        "preference": 80,
+        "support": "legacy",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-25;default;x86" }
+      }
+    ],
+    "notes": "Old enough that screen recording and some sensor injection behave differently - the capability map above is what actually works, not what the OS claims."
+  },
+  {
+    "id": "aosp-4.4-x86",
+    "name": "AOSP Android 4.4 (KitKat)",
+    "platform": "android",
+    "androidVersion": "4.4",
+    "apiLevel": 19,
+    "architecture": "x86",
+    "variant": "emulator-system-image",
+    "formFactors": ["phone", "headless"],
+    "googleServices": false,
+    "support": "legacy",
+    "capabilities": {
+      "touch": true, "keyboard": true, "rotation": true, "accelerometer": true, "gps": true,
+      "adb": true, "root": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "none",
+        "preference": 50,
+        "support": "legacy",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-19;default;x86" },
+        "notes": "Software rendering only. No multi-touch, no screen recording, no modern sensor injection."
+      }
+    ],
+    "notes": "Bottom of the practical range. Useful for proving an app still installs and launches on a KitKat-era API level; not useful for anything visual."
+  },
+  {
+    "id": "android-tv-14-x86_64",
+    "name": "Android TV 14",
+    "platform": "android",
+    "androidVersion": "14",
+    "apiLevel": 34,
+    "architecture": "x86_64",
+    "variant": "emulator-system-image",
+    "formFactors": ["tv"],
+    "googleServices": true,
+    "support": "supported",
+    "capabilities": {
+      "dpad": true, "keyboard": true, "speaker": true, "microphone": true, "adb": true, "root": true,
+      "screen_record": true, "play_services": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "preferred",
+        "preference": 100,
+        "support": "supported",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-34;android-tv;x86" }
+      }
+    ],
+    "notes": "Android TV, not Google TV. Google TV's launcher ships on retail devices, not in the public system images - a Google TV form factor is a physical device in ProxBox, not a virtual one."
+  },
+  {
+    "id": "automotive-14-x86_64",
+    "name": "Android Automotive 14",
+    "platform": "android",
+    "androidVersion": "14",
+    "apiLevel": 34,
+    "architecture": "x86_64",
+    "variant": "emulator-system-image",
+    "formFactors": ["automotive"],
+    "googleServices": false,
+    "support": "experimental",
+    "capabilities": {
+      "touch": true, "multitouch": true, "gps": true, "speaker": true, "microphone": true,
+      "adb": true, "root": true, "screen_record": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "preferred",
+        "preference": 100,
+        "support": "experimental",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-34;android-automotive;x86_64" }
+      }
+    ],
+    "notes": "Heavier than a phone image and it wants a GPU. Vehicle HAL properties are simulated by the emulator only."
+  },
+  {
+    "id": "wear-os-5-x86",
+    "name": "Wear OS 5",
+    "platform": "android",
+    "androidVersion": "14",
+    "apiLevel": 34,
+    "architecture": "x86",
+    "variant": "emulator-system-image",
+    "formFactors": ["wear"],
+    "googleServices": true,
+    "support": "experimental",
+    "capabilities": {
+      "touch": true, "accelerometer": true, "gyroscope": true, "gps": true, "speaker": true,
+      "microphone": true, "adb": true, "root": true
+    },
+    "engines": [
+      {
+        "runtime": "android-emulator",
+        "boot": "avd",
+        "requiresKvm": true,
+        "gpu": "optional",
+        "preference": 100,
+        "support": "experimental",
+        "source": { "kind": "sdk-package", "packageName": "system-images;android-34;android-wear;x86" }
+      }
+    ],
+    "notes": "Wear images normally expect a paired phone. Standalone watch apps test fine; companion-app flows need a second device in the same lab network."
+  },
+  {
+    "id": "bliss-os-16-x86_64",
+    "name": "Bliss OS 16 (Android 13)",
+    "platform": "android",
+    "androidVersion": "13",
+    "apiLevel": 33,
+    "architecture": "x86_64",
+    "variant": "bliss",
+    "formFactors": ["tablet_large", "kiosk", "pos", "embedded"],
+    "googleServices": false,
+    "support": "experimental",
+    "userSupplied": true,
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "mouse": true, "speaker": true,
+      "adb": true, "root": true, "rotation": true
+    },
+    "engines": [
+      {
+        "runtime": "qemu",
+        "boot": "qemu-uefi",
+        "requiresKvm": true,
+        "gpu": "preferred",
+        "preference": 100,
+        "support": "experimental",
+        "source": { "kind": "pve-iso", "volid": "local:iso/blissos-16-x86_64.iso" },
+        "notes": "Installs to a disk on first boot; ProxBox then snapshots that disk as the base image for linked clones."
+      }
+    ],
+    "notes": "A desktop-ish Android. Resolution is set at boot via the kernel command line, not by an AVD skin - so odd resolutions work, but changing one means a reboot."
+  },
+  {
+    "id": "android-x86-9-x86_64",
+    "name": "Android-x86 9.0",
+    "platform": "android",
+    "androidVersion": "9",
+    "apiLevel": 28,
+    "architecture": "x86_64",
+    "variant": "android-x86",
+    "formFactors": ["tablet_large", "kiosk", "embedded"],
+    "googleServices": false,
+    "support": "legacy",
+    "userSupplied": true,
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "mouse": true, "speaker": true,
+      "adb": true, "root": true, "rotation": true
+    },
+    "engines": [
+      {
+        "runtime": "qemu",
+        "boot": "qemu-bios",
+        "requiresKvm": true,
+        "gpu": "preferred",
+        "preference": 90,
+        "support": "legacy",
+        "source": { "kind": "pve-iso", "volid": "local:iso/android-x86_64-9.0-r2.iso" }
+      }
+    ],
+    "notes": "The last Android-x86 release with broad hardware support. Good for kiosk-style regression work on real PC hardware paths."
+  },
+  {
+    "id": "lineage-x86-20",
+    "name": "LineageOS 20 x86_64 (community build)",
+    "platform": "android",
+    "androidVersion": "13",
+    "apiLevel": 33,
+    "architecture": "x86_64",
+    "variant": "lineage",
+    "formFactors": ["tablet_large", "kiosk", "embedded"],
+    "googleServices": false,
+    "support": "experimental",
+    "userSupplied": true,
+    "capabilities": { "touch": true, "multitouch": true, "keyboard": true, "mouse": true, "adb": true, "root": true },
+    "engines": [
+      {
+        "runtime": "qemu",
+        "boot": "qemu-uefi",
+        "requiresKvm": true,
+        "gpu": "preferred",
+        "preference": 80,
+        "support": "experimental",
+        "source": { "kind": "pve-iso", "volid": "local:iso/lineage-20-x86_64.iso" }
+      }
+    ],
+    "notes": "LineageOS does not publish official x86_64 desktop builds; this entry exists for an admin-supplied community or in-house build. Nothing is downloaded automatically."
+  },
+  {
+    "id": "gsi-android-14-arm64",
+    "name": "GSI Android 14 (ARM64)",
+    "platform": "android",
+    "androidVersion": "14",
+    "apiLevel": 34,
+    "architecture": "arm64",
+    "variant": "gsi",
+    "formFactors": ["phone", "tablet_large", "headless"],
+    "googleServices": false,
+    "support": "experimental",
+    "userSupplied": true,
+    "capabilities": { "touch": true, "keyboard": true, "adb": true, "root": true },
+    "engines": [
+      {
+        "runtime": "qemu",
+        "boot": "qemu-uefi",
+        "requiresKvm": false,
+        "gpu": "none",
+        "preference": 10,
+        "support": "experimental",
+        "source": { "kind": "pve-disk", "volid": "local:iso/gsi-14-arm64.img" },
+        "notes": "ARM64 on an x86 host means full TCG translation - no KVM, no GPU. Boots in minutes, runs at a small fraction of native speed. Fine for a headless instrumentation run, painful for anything interactive."
+      },
+      {
+        "runtime": "physical-adb",
+        "boot": "device",
+        "requiresKvm": false,
+        "gpu": "none",
+        "preference": 100,
+        "support": "supported",
+        "source": { "kind": "device" },
+        "notes": "Preferred: satisfy ARM64 requests with a real ARM64 device on a node."
+      }
+    ],
+    "notes": "The cluster is x86-64. This image exists to prove the ARM path: the scheduler will steer an ARM64 request to a physical device when one is free, and only fall back to TCG when explicitly allowed."
+  },
+  {
+    "id": "physical-device",
+    "name": "Physical device (as flashed)",
+    "platform": "android",
+    "androidVersion": "0",
+    "apiLevel": 0,
+    "architecture": "arm64",
+    "variant": "physical",
+    "formFactors": ["phone", "tablet_small", "tablet_large", "pos", "tv", "embedded", "wear", "foldable", "kiosk"],
+    "googleServices": true,
+    "support": "supported",
+    "capabilities": { "touch": true, "multitouch": true, "adb": true, "screen_record": true },
+    "engines": [
+      {
+        "runtime": "physical-adb",
+        "boot": "device",
+        "requiresKvm": false,
+        "gpu": "none",
+        "preference": 100,
+        "support": "supported",
+        "source": { "kind": "device" }
+      }
+    ],
+    "notes": "The pseudo-image every discovered physical device is registered against. Its real version, API level and architecture come from the device itself at discovery time - the fields here are only placeholders."
+  },
+  {
+    "id": "mock-android-15",
+    "name": "Mock Android 15 (no hardware)",
+    "platform": "android",
+    "androidVersion": "15",
+    "apiLevel": 35,
+    "architecture": "x86_64",
+    "variant": "custom",
+    "formFactors": ["phone", "tablet_small", "tablet_large", "foldable", "kiosk", "pos", "tv", "automotive", "wear", "embedded", "headless"],
+    "googleServices": false,
+    "support": "supported",
+    "capabilities": {
+      "touch": true, "multitouch": true, "keyboard": true, "mouse": true, "rotation": true,
+      "accelerometer": true, "gyroscope": true, "gps": true, "adb": true, "screen_record": true
+    },
+    "engines": [
+      {
+        "runtime": "mock",
+        "boot": "device",
+        "requiresKvm": false,
+        "gpu": "none",
+        "preference": 1,
+        "support": "supported",
+        "source": { "kind": "none" }
+      }
+    ],
+    "notes": "Only offered when ANDROID_MOCK=1. It exercises the whole controller path - plan, schedule, boot, ADB, screen, control - without touching the cluster or any hardware."
+  }
+]

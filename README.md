@@ -80,3 +80,17 @@ storage is reachable" for everyone, including root.
   otherwise the card shows "not reported yet" - install the agent in golden
   images to make RDP one-click.
 - The proxy trusts pve1's self-signed certificate. Keep this on The Proxbox LAN.
+
+## Android devices (new subsystem)
+
+The **Devices** button opens the Android device platform: virtual Android
+devices (Google emulator or full Android VMs) and physical Android hardware
+plugged into a node, in one registry with one set of actions. Create a device by
+picking an OS image and a hardware profile - the scheduler works out the runtime
+and the node, and tells you why before you commit.
+
+It is entirely additive and inert until a node runs the Android agent
+(`agent/install-android-agent.sh`). To try the whole flow with no hardware at
+all: `ANDROID_MOCK=1 npm run serve`.
+
+Design and operations: [docs/android/](docs/android/README.md).

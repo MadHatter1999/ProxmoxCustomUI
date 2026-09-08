@@ -1,0 +1,18 @@
+{
+  "//": "Typechecking for the server half. The root tsconfig only covers src/ (the Vite build), so `npm run build` never looked at server code. This is additive and changes no existing script: run it with `npx tsc -p server`. Scoped to android/ deliberately: index.ts predates any typecheck and has a pre-existing unknown-narrowing error, and quietly editing working code to satisfy a new linter is not a fix.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["android"]
+}
