@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { androidConfig } from './config.js'
 import { store } from './store.js'
 import type { PhysicalDeviceReport } from './types.js'
@@ -122,6 +123,49 @@ export const agent = {
       throw new AgentError(`adb ${args[0]} failed on ${node}: ${r.stderr.trim().slice(0, 300)}`)
     }
     return r.stdout
+  },
+
+  /**
+   * Open a live H.264 screen stream from the node agent.
+   *
+   * Polled screenshots top out around 3fps because every frame is a fresh
+   * screencap plus a round trip. This is the device's own encoder at ~30fps,
+   * and the caller pipes the body straight through to the browser.
+   */
+  async screenStream(node: string, serial: string | undefined, signal?: AbortSignal): Promise<IncomingMessage> {
+    if (!androidConfig.agentToken) {
+      throw new AgentError('No ANDROID_AGENT_TOKEN is configured, so ProxBox cannot talk to node agents yet.')
+    }
+    const pathname = '/screen/stream'
+    const query = serial ? `?serial=${encodeURIComponent(serial)}` : ''
+    const { ts, sig } = sign('GET', pathname, Buffer.alloc(0))
+    const target = new URL(`${endpointFor(node)}${pathname}${query}`)
+    // Deliberately raw http.request rather than fetch: undici buffers the
+    // response body, which measured ~300ms of added latency on a live screen.
+    // A plain IncomingMessage hands frames over as they land.
+    return new Promise<IncomingMessage>((resolve, reject) => {
+      const req = httpRequest(
+        {
+          hostname: target.hostname,
+          port: target.port || 80,
+          path: `${target.pathname}${target.search}`,
+          method: 'GET',
+          headers: { 'x-proxbox-ts': ts, 'x-proxbox-sig': sig }
+        },
+        res => {
+          if (res.statusCode !== 200) {
+            res.resume()
+            reject(new AgentError(`agent on ${node} answered ${res.statusCode} for the screen stream`))
+            return
+          }
+          resolve(res)
+        }
+      )
+      req.on('socket', s => s.setNoDelay(true))
+      req.on('error', err => reject(new AgentError(`could not open the screen stream on ${node}: ${err.message}`)))
+      signal?.addEventListener('abort', () => req.destroy(), { once: true })
+      req.end()
+    })
   },
 
   /** Attach a network-reachable device (an Android VM) to this node's adb. */

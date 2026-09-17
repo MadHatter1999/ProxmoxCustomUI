@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import express from 'express'
+import { agent } from './agent-client.js'
 import { androidConfig } from './config.js'
 import { ANDROID_VERSIONS } from './compat.js'
 import { recordHeartbeat, type HeartbeatBody } from './nodes.js'
@@ -279,8 +280,9 @@ export function createAndroidRouter(deps: AndroidRouterDeps): express.Router {
   router.delete('/svc/android/devices/:id', async (req, res) => {
     const device = store.getDevice(req.params.id)
     if (!device) return res.status(404).json({ message: 'No such device.' })
+    const force = req.query.force === '1' || req.query.force === 'true'
     try {
-      await runtimes.destroy(device, callerName(req))
+      await runtimes.destroy(device, callerName(req), force)
       res.json({ ok: true })
     } catch (err) {
       fail(res, 502, err)
@@ -373,6 +375,29 @@ export function createAndroidRouter(deps: AndroidRouterDeps): express.Router {
     res.setHeader('content-type', shot.mime)
     res.setHeader('cache-control', 'no-store')
     res.send(shot.data)
+  }))
+
+  // Live video instead of polled stills. The agent hands back a raw Annex-B
+  // H.264 elementary stream straight from the device's encoder; we pipe it to
+  // the browser, which decodes it with WebCodecs. Aborting on client
+  // disconnect matters here - otherwise screenrecord keeps running on the node.
+  router.get('/svc/android/devices/:id/stream', withDevice(async (device, _user, _req, res) => {
+    const ac = new AbortController()
+    // NB: the RESPONSE's close, not the request's - a GET request "closes" as
+    // soon as its (empty) body is read, which would tear the stream down at once.
+    res.on('close', () => ac.abort())
+    const upstream = await agent.screenStream(device.node, device.adb.serial, ac.signal)
+    res.setHeader('content-type', 'video/h264')
+    res.setHeader('cache-control', 'no-store')
+    res.flushHeaders()
+    // Frames are small and frequent; left alone the stack coalesces them (Nagle
+    // plus stream buffering) and the viewer gets seconds of video in one burst,
+    // which is exactly what "laggy" looks like. Forward each chunk immediately.
+    res.socket?.setNoDelay(true)
+    upstream.on('data', (chunk: Buffer) => { if (!res.writableEnded) res.write(chunk) })
+    upstream.on('end', () => { if (!res.writableEnded) res.end() })
+    upstream.on('error', () => { if (!res.writableEnded) res.end() })
+    res.on('close', () => upstream.destroy())
   }))
 
   router.post('/svc/android/devices/:id/input', withDevice(async (device, _user, req, res) => {

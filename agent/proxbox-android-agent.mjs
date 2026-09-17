@@ -210,6 +210,11 @@ function listSystemImages() {
     for (const api of fs.readdirSync(root)) {
       for (const tag of fs.readdirSync(path.join(root, api))) {
         for (const abi of fs.readdirSync(path.join(root, api, tag))) {
+          // A directory alone means nothing: a failed or half-finished download
+          // leaves the tree behind. source.properties is what the SDK itself
+          // treats as "installed", and reporting anything else makes the
+          // controller skip a download that never actually happened.
+          if (!exists(path.join(root, api, tag, abi, 'source.properties'))) continue
           out.push(`system-images;${api};${tag};${abi}`)
         }
       }
@@ -295,8 +300,69 @@ async function describe(serial) {
 
 const emulators = new Map() // avd name -> { child, serial, port }
 
+/**
+ * Where Google actually serves a system image zip.
+ *
+ * sdkmanager knows this too, but its Java downloader crawls (~40KB/s) and
+ * stalls outright on links like this node's, so we resolve the URL ourselves
+ * out of the repository index and fetch it with curl instead.
+ */
+async function resolveSystemImageUrl(packageName) {
+  const parts = packageName.split(';')
+  if (parts[0] !== 'system-images' || parts.length < 4) return null
+  const tag = parts[2]
+  // The vendor directory is the tag, except plain AOSP which lives under "android".
+  const vendor = tag === 'default' ? 'android' : tag
+  const base = `https://dl.google.com/android/repository/sys-img/${vendor}/`
+  for (const index of ['sys-img2-3.xml', 'sys-img2-2.xml', 'sys-img2-1.xml']) {
+    const xml = await text('curl', ['-4', '-s', '-m', '30', `${base}${index}`], 40000)
+    if (!xml) continue
+    const start = xml.indexOf(`<remotePackage path="${packageName}"`)
+    if (start < 0) continue
+    const stop = xml.indexOf('</remotePackage>', start)
+    const block = stop < 0 ? xml.slice(start) : xml.slice(start, stop)
+    const m = block.match(/<url>([^<]+)<\/url>/)
+    if (m) return `${base}${m[1]}`
+  }
+  return null
+}
+
+/** curl with resume, retried - this link stalls partway through big files. */
+async function downloadWithResume(url, dest, attempts = 60) {
+  for (let i = 0; i < attempts; i++) {
+    const r = await run(
+      'curl',
+      ['-4', '-fsSL', '-C', '-', '--speed-limit', '150000', '--speed-time', '10', '--connect-timeout', '15', '-o', dest, url],
+      { timeoutMs: 900_000 }
+    )
+    if (r.code === 0) return true
+  }
+  return false
+}
+
 async function ensureSdkPackage(packageName) {
   if (listSystemImages().includes(packageName)) return { ok: true, installed: false }
+  const parts = packageName.split(';')
+  if (parts[0] === 'system-images' && parts.length >= 4) {
+    const [, api, tag, abi] = parts
+    const marker = path.join(SDK_ROOT, 'system-images', api, tag, abi, 'source.properties')
+    if (exists(marker)) return { ok: true, installed: false }
+    const url = await resolveSystemImageUrl(packageName)
+    if (!url) throw new Error(`Could not find a download for ${packageName} in Google's repository index.`)
+    const zip = path.join(os.tmpdir(), `sysimg-${api}-${tag}-${abi}.zip`)
+    if (!(await downloadWithResume(url, zip))) {
+      throw new Error(`Could not download ${packageName} - the link kept stalling.`)
+    }
+    const destDir = path.join(SDK_ROOT, 'system-images', api, tag)
+    fs.mkdirSync(destDir, { recursive: true })
+    const un = await run('unzip', ['-oq', zip, '-d', destDir], { timeoutMs: 900_000 })
+    try { fs.unlinkSync(zip) } catch { /* leftover zip is harmless */ }
+    if (un.code !== 0) throw new Error(`unzip failed for ${packageName}: ${un.stderr.slice(0, 200)}`)
+    if (!exists(marker)) throw new Error(`${packageName} unpacked but no source.properties appeared.`)
+    return { ok: true, installed: true }
+  }
+  // Anything that isn't a system image (platform-tools, emulator) is small
+  // enough that sdkmanager's downloader is fine.
   const sdkmanager = path.join(SDK_ROOT, 'cmdline-tools', 'latest', 'bin', 'sdkmanager')
   if (!exists(sdkmanager)) throw new Error(`No sdkmanager at ${sdkmanager} - this node cannot fetch system images.`)
   const r = await run('sh', ['-c', `yes | "${sdkmanager}" --install "${packageName}"`], { timeoutMs: 1_800_000 })
@@ -358,11 +424,26 @@ function mergeIni(file, props) {
 async function startAvd(body) {
   const { avd, gpu = 'auto', headless = true, wipeData = false, snapshot } = body
   if (emulators.has(avd)) return emulators.get(avd).info
+  // Already running from before an agent restart: adopt it rather than launch
+  // a second instance, which would just fail on the AVD lock.
+  const running = await findEmulatorSerial(avd)
+  if (running) {
+    const info = { serial: running, port: Number(running.split('-')[1]) }
+    emulators.set(avd, { child: null, info })
+    return info
+  }
   const port = await freeEmulatorPort()
+  // A headless server node has no display and no usable 3D GPU, so 'host'/'auto'
+  // hangs the emulator at graphics init (0% CPU, never boots) - software
+  // rendering (swiftshader) is the only mode that boots there. And force KVM
+  // (-accel on): without it the emulator drops to pure-software CPU emulation,
+  // which either crawls for many minutes or hangs. Verified: swiftshader + KVM
+  // boots in ~20-25s on these nodes.
   const args = [
     '-avd', avd,
     '-port', String(port),
-    '-gpu', gpu,
+    '-gpu', headless ? 'swiftshader_indirect' : gpu,
+    '-accel', 'on',
     '-no-boot-anim',
     '-no-audio'
   ]
@@ -393,17 +474,55 @@ async function freeEmulatorPort() {
   throw new Error('This node has no free emulator ports left (5554-5680 are all in use).')
 }
 
+/**
+ * Which running emulator is serving this AVD, asked of adb itself.
+ *
+ * The emulators map is in-memory, but emulators deliberately outlive an agent
+ * restart (KillMode=process). Trusting the map alone meant a device deleted
+ * after any restart left its emulator running forever - a multi-GB orphan.
+ */
+async function findEmulatorSerial(avd) {
+  const list = (await adb(null, ['devices'], null, 10000)).stdout.toString('utf8')
+  // Any state, not just "device": an emulator still booting lists as "offline",
+  // and a stuck-booting one is exactly the kind someone deletes.
+  for (const [, serial] of list.matchAll(/^(emulator-\d+)\s+\S+/gm)) {
+    const out = (await adb(serial, ['emu', 'avd', 'name'], null, 8000)).stdout.toString('utf8')
+    if (out.split(/\r?\n/)[0].trim() === avd) return serial
+  }
+  return null
+}
+
+/** AVD names are controller-generated, but never let one become regex syntax. */
+const avdPattern = avd => `[-]avd ${avd.replace(/[^A-Za-z0-9_-]/g, '.')}( |$)`
+
+/** Is an emulator process for this AVD alive? The process table can't be fooled by adb state. */
+async function avdProcessAlive(avd) {
+  return (await run('pgrep', ['-f', avdPattern(avd)], { timeoutMs: 5000 })).code === 0
+}
+
 async function stopAvd(avd) {
-  const entry = emulators.get(avd)
-  if (entry) {
-    await adb(entry.info.serial, ['emu', 'kill'], null, 15000).catch(() => {})
-    emulators.delete(avd)
+  const serial = emulators.get(avd)?.info.serial ?? (await findEmulatorSerial(avd))
+  if (serial) await adb(serial, ['emu', 'kill'], null, 15000).catch(() => {})
+  emulators.delete(avd)
+  // emu kill needs a responsive console; a wedged or half-booted emulator can
+  // ignore it. Give it a moment to exit cleanly, then take it off the process
+  // table directly so a deleted device can never leave a multi-GB orphan.
+  for (let i = 0; i < 15 && (await avdProcessAlive(avd)); i++) {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+  }
+  if (await avdProcessAlive(avd)) {
+    await run('pkill', ['-9', '-f', avdPattern(avd)], { timeoutMs: 5000 })
   }
   return { ok: true }
 }
 
 async function deleteAvd(avd) {
   await stopAvd(avd)
+  // avdmanager refuses to delete an AVD whose emulator still holds its lock,
+  // and deleting the files under a live emulator is worse. Wait for it to go.
+  for (let i = 0; i < 10 && (await avdProcessAlive(avd)); i++) {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+  }
   const avdmanager = path.join(SDK_ROOT, 'cmdline-tools', 'latest', 'bin', 'avdmanager')
   await run(avdmanager, ['delete', 'avd', '-n', avd], { timeoutMs: 60000 })
   return { ok: true }
@@ -494,6 +613,45 @@ const server = createServer((req, res) => {
     }
     try {
       switch (`${req.method} ${url.pathname}`) {
+        case 'GET /screen/stream': {
+          // Live H.264 instead of polled screenshots: screenrecord uses the
+          // device's own encoder, so this is ~30fps video rather than 3fps of
+          // PNGs. It caps each run at 180s, so runs are chained back-to-back for
+          // a continuous stream (each run re-emits SPS/PPS, which decoders take
+          // in their stride). The body is a raw Annex-B elementary stream.
+          const serial = url.searchParams.get('serial') || null
+          const bitRate = String(Number(url.searchParams.get('bitRate') || 4_000_000))
+          res.writeHead(200, { 'content-type': 'video/h264', 'cache-control': 'no-store' })
+          // Node holds headers back until the first write; a still screen may
+          // not produce a frame for a second or two, and the client must not
+          // sit there thinking the request hung.
+          if (typeof res.flushHeaders === 'function') res.flushHeaders()
+          // Frames are small and frequent; Nagle would batch them into bursts.
+          if (res.socket && typeof res.socket.setNoDelay === 'function') res.socket.setNoDelay(true)
+          let stopped = false
+          let child = null
+          const startOnce = () => {
+            if (stopped) return
+            const base = ['exec-out', 'screenrecord', '--output-format=h264', '--time-limit', '180', '--bit-rate', bitRate, '-']
+            const args = serial ? ['-s', serial, ...base] : base
+            child = spawn(ADB, args, { env: { ...process.env, ANDROID_SDK_ROOT: SDK_ROOT, ANDROID_HOME: SDK_ROOT } })
+            child.stdout.on('data', d => { if (!stopped) res.write(d) })
+            child.stderr.on('data', () => {})
+            child.on('close', () => { if (!stopped) startOnce() })
+            child.on('error', () => { if (!stopped) { stopped = true; try { res.end() } catch {} } })
+          }
+          const stop = () => {
+            if (stopped) return
+            stopped = true
+            try { if (child) child.kill('SIGKILL') } catch {}
+            try { res.end() } catch {}
+          }
+          // NB: only the response's 'close'. req 'close' fires as soon as the
+          // (empty) GET body is done, which would kill the stream instantly.
+          res.on('close', stop)
+          startOnce()
+          return
+        }
         case 'GET /capabilities':
           return send(200, await nodeCapabilities())
         case 'GET /devices':

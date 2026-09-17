@@ -255,7 +255,8 @@ export const androidApi = {
   action: (id: string, action: 'start' | 'stop' | 'reboot' | 'reset') =>
     call<AndroidDevice>(`/devices/${id}/${action}`, { method: 'POST' }),
 
-  destroy: (id: string) => call<{ ok: true }>(`/devices/${id}`, { method: 'DELETE' }),
+  destroy: (id: string, force?: boolean) =>
+    call<{ ok: true }>(`/devices/${id}${force ? '?force=1' : ''}`, { method: 'DELETE' }),
 
   reserve: (id: string, minutes?: number) => call<AndroidDevice>(`/devices/${id}/reserve`, json({ minutes })),
   release: (id: string) => call<AndroidDevice>(`/devices/${id}/release`, { method: 'POST' }),
@@ -276,6 +277,9 @@ export const androidApi = {
 
   /** The screen is a plain image URL - cache-busted per frame by the caller. */
   screenUrl: (id: string, frame: number) => `/svc/android/devices/${id}/screen?f=${frame}`,
+
+  /** Live H.264 stream (device's own encoder) - decoded in-browser by WebCodecs. */
+  streamUrl: (id: string) => `/svc/android/devices/${id}/stream`,
 
   async installApk(id: string, file: File, onProgress?: (pct: number) => void): Promise<string> {
     return new Promise((resolve, reject) => {

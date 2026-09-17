@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { AuthError } from '../api'
 import { androidApi, type AndroidDevice } from '../android'
+import DeviceVideo from './DeviceVideo'
 
 /**
  * The remote-control surface, shared by every kind of Android device.
@@ -56,6 +57,13 @@ export default function DeviceScreen({ device, onClose, onChanged, onAuthError }
   const [shellCmd, setShellCmd] = useState('')
   const [shellOut, setShellOut] = useState('')
   const [installPct, setInstallPct] = useState<number | null>(null)
+  // A delete that couldn't tear the device down flips to a forced removal.
+  const [forceDel, setForceDel] = useState(false)
+  // Live H.264 by default; drop to the screenshot poll if the browser has no
+  // WebCodecs or the stream dies. Stable identity so it doesn't restart the
+  // stream on every render.
+  const [videoMode, setVideoMode] = useState(true)
+  const dropToStills = useCallback(() => setVideoMode(false), [])
   const imgRef = useRef<HTMLImageElement>(null)
   const pressRef = useRef<{ x: number; y: number; at: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -65,11 +73,14 @@ export default function DeviceScreen({ device, onClose, onChanged, onAuthError }
   // One frame at a time: the next request only goes out when the last image
   // has actually painted, so a slow device degrades to a lower frame rate
   // instead of queueing up a backlog of stale screenshots.
+  // One frame at a time (below) means the next request only fires once the last
+  // image has painted, so this delay just paces polling - keep it small so the
+  // view refreshes as fast as the screencap round-trip allows, not at ~2fps.
   useEffect(() => {
-    if (!live || !ready) return
-    const t = setTimeout(() => setFrame(f => f + 1), 450)
+    if (!live || !ready || videoMode) return // live video needs no polling
+    const t = setTimeout(() => setFrame(f => f + 1), 120)
     return () => clearTimeout(t)
-  }, [live, ready, frame])
+  }, [live, ready, frame, videoMode])
 
   const handle = useCallback(
     async (label: string, fn: () => Promise<unknown>) => {
@@ -87,26 +98,54 @@ export default function DeviceScreen({ device, onClose, onChanged, onAuthError }
     [onAuthError]
   )
 
-  /** Screen pixel -> device pixel, using the image's own natural size. */
-  function toDevice(e: ReactPointerEvent<HTMLImageElement>): { x: number; y: number } {
-    const img = imgRef.current
-    if (!img) return { x: 0, y: 0 }
-    const rect = img.getBoundingClientRect()
-    const natW = img.naturalWidth || device.display.width
-    const natH = img.naturalHeight || device.display.height
+  async function del() {
+    const isVirtual = device.kind === 'virtual'
+    const ok = confirm(
+      !isVirtual
+        ? `Remove ${device.name} from the device list? A physical device reappears if it reconnects.`
+        : forceDel
+          ? `Force delete ${device.name}? Its record is removed even though the node couldn't be reached to tear it down.`
+          : `Delete ${device.name}? The device and its disk are removed.`
+    )
+    if (!ok) return
+    setBusy('delete')
+    setError('')
+    try {
+      // Physical (and already-forced) removals skip teardown - just drop the record.
+      await androidApi.destroy(device.id, forceDel || !isVirtual)
+      onChanged()
+      onClose()
+    } catch (err) {
+      if (err instanceof AuthError) { onAuthError(); return }
+      setError(err instanceof Error ? err.message : String(err))
+      setForceDel(true)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  /**
+   * Screen pixel -> device pixel, off whichever surface is showing: the live
+   * canvas carries its size on width/height, a still image on naturalWidth.
+   */
+  function toDevice(e: ReactPointerEvent<HTMLElement>): { x: number; y: number } {
+    const el = e.currentTarget
+    const rect = el.getBoundingClientRect()
+    const natW = (el as HTMLImageElement).naturalWidth || (el as HTMLCanvasElement).width || device.display.width
+    const natH = (el as HTMLImageElement).naturalHeight || (el as HTMLCanvasElement).height || device.display.height
     return {
       x: ((e.clientX - rect.left) / rect.width) * natW,
       y: ((e.clientY - rect.top) / rect.height) * natH
     }
   }
 
-  function onPointerDown(e: ReactPointerEvent<HTMLImageElement>) {
+  function onPointerDown(e: ReactPointerEvent<HTMLElement>) {
     if (!ready) return
     const p = toDevice(e)
     pressRef.current = { ...p, at: Date.now() }
   }
 
-  function onPointerUp(e: ReactPointerEvent<HTMLImageElement>) {
+  function onPointerUp(e: ReactPointerEvent<HTMLElement>) {
     if (!ready || !pressRef.current) return
     const start = pressRef.current
     pressRef.current = null
@@ -179,6 +218,9 @@ export default function DeviceScreen({ device, onClose, onChanged, onAuthError }
             <button type="button" className="ghost" onClick={() => setLive(l => !l)}>
               {live ? 'Pause' : 'Resume'}
             </button>
+            <button type="button" className="ghost danger" disabled={!!busy} onClick={del}>
+              {busy === 'delete' ? 'Removing…' : device.kind === 'virtual' ? (forceDel ? 'Force delete' : 'Delete') : 'Remove'}
+            </button>
             <button type="button" className="ghost" onClick={onClose} aria-label="Close">✕</button>
           </div>
         </div>
@@ -198,7 +240,24 @@ export default function DeviceScreen({ device, onClose, onChanged, onAuthError }
             role="application"
             aria-label={`${device.name} screen`}
           >
-            {ready ? (
+            {!ready ? (
+              <div className="device-screen-placeholder">
+                <span className="spinner" aria-hidden /> {device.statusText ?? device.state}
+              </div>
+            ) : videoMode ? (
+              live ? (
+                <DeviceVideo
+                  src={androidApi.streamUrl(device.id)}
+                  className="device-screen-img"
+                  onUnsupported={dropToStills}
+                  onError={dropToStills}
+                  onPointerDown={onPointerDown}
+                  onPointerUp={onPointerUp}
+                />
+              ) : (
+                <div className="device-screen-placeholder">Paused</div>
+              )
+            ) : (
               <img
                 ref={imgRef}
                 className="device-screen-img"
@@ -209,10 +268,6 @@ export default function DeviceScreen({ device, onClose, onChanged, onAuthError }
                 onPointerUp={onPointerUp}
                 onError={() => setLive(false)}
               />
-            ) : (
-              <div className="device-screen-placeholder">
-                <span className="spinner" aria-hidden /> {device.statusText ?? device.state}
-              </div>
             )}
           </div>
 
@@ -267,6 +322,11 @@ export default function DeviceScreen({ device, onClose, onChanged, onAuthError }
             )}
 
             <dl className="device-facts">
+              {/* Which path the view is actually on - live video vs the
+                  screenshot fallback - because "it feels laggy" means very
+                  different things depending on the answer. */}
+              <dt>View</dt>
+              <dd>{videoMode ? 'Live video (H.264)' : 'Snapshots (fallback)'}</dd>
               <dt>Runtime</dt><dd>{device.runtime}</dd>
               <dt>ADB</dt><dd>{device.adb.serial ?? 'not attached'}</dd>
               <dt>Held by</dt><dd>{device.reservation?.owner ?? 'nobody'}</dd>

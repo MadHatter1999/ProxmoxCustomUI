@@ -3,7 +3,9 @@ import { createProxyMiddleware } from 'http-proxy-middleware'
 import { execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import http from 'node:http'
 import https from 'node:https'
+import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 /// <reference path="./guacamole-lite.d.ts" />
@@ -697,7 +699,31 @@ app.get('*', (_req, res) => {
 // reports gave zero server-side signal, so log every websocket upgrade
 // attempt (does it even arrive here?) and how its socket ends (does the
 // proxy hang up on it immediately, and with what error if any?).
+/**
+ * guacamole-lite runs inside THIS process and throws, uncaught, when handed a
+ * token it cannot decrypt - so one malformed /guac-ws request took the entire
+ * portal down for every user. Prove the token decrypts before it gets there.
+ */
+function guacTokenIsValid(url: string | undefined): boolean {
+  try {
+    const token = new URL(url ?? '', 'http://x').searchParams.get('token')
+    if (!token) return false
+    const { iv, value } = JSON.parse(Buffer.from(token, 'base64').toString('utf8')) as { iv?: string; value?: string }
+    if (!iv || !value) return false
+    const decipher = crypto.createDecipheriv('aes-256-cbc', RDP_KEY, Buffer.from(iv, 'base64'))
+    JSON.parse(decipher.update(value, 'base64', 'utf8') + decipher.final('utf8'))
+    return true
+  } catch {
+    return false
+  }
+}
+
 function loggedUpgrade(req: import('node:http').IncomingMessage, socket: import('node:net').Socket, head: Buffer) {
+  if (req.url?.startsWith('/guac-ws') && !guacTokenIsValid(req.url)) {
+    console.log('[upgrade] rejected /guac-ws - token missing or does not decrypt')
+    socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')
+    return
+  }
   console.log(`[upgrade] ${req.method} ${req.url}`)
   socket.on('error', err => console.log(`[upgrade] socket error on ${req.url}:`, err.message))
   socket.on('close', hadError => console.log(`[upgrade] socket closed on ${req.url} (hadError=${hadError})`))
@@ -744,10 +770,27 @@ if (process.env.HTTPS === '1') {
     fs.writeFileSync(certFile, pems.cert)
     console.log(`Generated self-signed certificate in ${certDir}`)
   }
-  const server = https
-    .createServer({ key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) }, app)
-    .listen(PORT, () => console.log(`ProxBox Spin-Up (https) on port ${PORT} → ${PVE_HOST}`))
-  server.on('upgrade', loggedUpgrade)
+  // One port, both protocols. HTTPS is needed for a secure context (PWA
+  // install, and WebCodecs for the live Android screen), but plenty of
+  // browsers, bookmarks and installed shortcuts still use plain http:// - and
+  // an HTTPS-only listener silently breaks every one of them. So peek at the
+  // first byte of each connection: 0x16 is a TLS ClientHello, anything else is
+  // plain HTTP, and each goes to the matching server on the same port.
+  const tlsServer = https.createServer({ key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) }, app)
+  const plainServer = http.createServer(app)
+  tlsServer.on('upgrade', loggedUpgrade)
+  plainServer.on('upgrade', loggedUpgrade)
+  net
+    .createServer(socket => {
+      socket.once('error', () => socket.destroy())
+      socket.once('data', first => {
+        socket.pause()
+        socket.unshift(first)
+        ;(first[0] === 0x16 ? tlsServer : plainServer).emit('connection', socket)
+        process.nextTick(() => socket.resume())
+      })
+    })
+    .listen(PORT, () => console.log(`ProxBox Spin-Up (http + https) on port ${PORT} → ${PVE_HOST}`))
   startRdpGateway()
 } else {
   const server = app.listen(PORT, () => console.log(`ProxBox Spin-Up on port ${PORT} → ${PVE_HOST}`))

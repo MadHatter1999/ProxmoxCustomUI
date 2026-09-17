@@ -18,6 +18,9 @@ export default function DeviceCard({ device, username, onOpen, onChanged, onAuth
 }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  // After a delete that failed to tear the device down (unreachable node, a
+  // half-created device), flip to "Force delete" so the record can still go.
+  const [forceDel, setForceDel] = useState(false)
 
   const ready = device.state === 'ready'
   const held = device.reservation
@@ -117,15 +120,39 @@ export default function DeviceCard({ device, username, onOpen, onChanged, onAuth
           </button>
         )}
 
-        {device.kind === 'virtual' && (
+        {/* Delete a virtual device outright; a physical device is removed from the
+            list (a live one re-registers on its next heartbeat, which is what you
+            want for real hardware and what clears a stale/phantom entry). */}
+        {(device.kind === 'virtual' || device.kind === 'physical') && (
           <button
-            className="ghost"
+            className="ghost danger"
             disabled={!!busy || blocked}
-            onClick={() =>
-              act('destroy', () => androidApi.destroy(device.id), `Destroy ${device.name}? The device and its disk are removed.`)
-            }
+            onClick={async () => {
+              const isVirtual = device.kind === 'virtual'
+              const ok = confirm(
+                !isVirtual
+                  ? `Remove ${device.name} from the device list? A physical device reappears if it reconnects.`
+                  : forceDel
+                    ? `Force delete ${device.name}? Its record is removed even though the node couldn't be reached to tear it down.`
+                    : `Delete ${device.name}? The device and its disk are removed.`
+              )
+              if (!ok) return
+              setBusy('destroy')
+              setError('')
+              try {
+                // Physical (and already-forced) removals skip teardown - just drop the record.
+                await androidApi.destroy(device.id, forceDel || !isVirtual)
+                onChanged()
+              } catch (err) {
+                if (err instanceof AuthError) { onAuthError(); return }
+                setError(err instanceof Error ? err.message : String(err))
+                setForceDel(true) // couldn't tear it down cleanly - offer a forced removal
+              } finally {
+                setBusy('')
+              }
+            }}
           >
-            {busy === 'destroy' ? 'Removing…' : 'Destroy'}
+            {busy === 'destroy' ? 'Removing…' : !device.kind || device.kind === 'virtual' ? (forceDel ? 'Force delete' : 'Delete') : 'Remove'}
           </button>
         )}
       </div>

@@ -136,6 +136,17 @@ class RuntimeManager {
     // physical tablet boots at its own native size.
     if (updated && status.state === 'ready' && before !== 'ready') {
       await this.applyRequestedShape(updated, adapter)
+      // A fresh AOSP screen sleeps on its idle timeout, and screencap of a slept
+      // display is solid black - which is exactly what shows up in the remote
+      // view. Emulators report as charging, so stayon-while-charging keeps the
+      // screen lit; push the timeout to max and wake it too. All best-effort.
+      for (const cmd of [
+        'svc power stayon true',
+        'settings put system screen_off_timeout 2147483647',
+        'input keyevent KEYCODE_WAKEUP'
+      ]) {
+        try { await adapter.shell(updated, cmd) } catch { /* keeping the screen lit is best-effort */ }
+      }
     }
 
     // Provisioning timeout: a device that never boots must not sit "booting"
@@ -193,7 +204,7 @@ class RuntimeManager {
   }
 
   /** Shared teardown so the reaper and the API agree on what "destroy" means. */
-  async destroy(device: DeviceRecord, user: string): Promise<void> {
+  async destroy(device: DeviceRecord, user: string, force = false): Promise<void> {
     store.patchDevice(device.id, { state: 'deleting', statusText: 'Removing' })
     try {
       await this.for(device).destroy(device)
@@ -201,6 +212,15 @@ class RuntimeManager {
       store.audit({ at: Date.now(), user, action: 'device.destroy', deviceId: device.id, detail: device.name, ok: true })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      if (force) {
+        // Teardown failed but the operator asked to force it - drop the record
+        // anyway so a half-created or unreachable device can't get stuck in the
+        // list forever. The node-side emulator (if any) is left for the agent's
+        // reaper / a manual adb kill; the record is what the user wants gone.
+        store.deleteDevice(device.id)
+        store.audit({ at: Date.now(), user, action: 'device.destroy', deviceId: device.id, detail: `forced (${message})`, ok: true })
+        return
+      }
       store.patchDevice(device.id, { state: 'error', error: `Could not remove it: ${message}` })
       store.audit({ at: Date.now(), user, action: 'device.destroy', deviceId: device.id, detail: message, ok: false })
       throw err

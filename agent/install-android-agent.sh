@@ -87,6 +87,10 @@ EnvironmentFile=/etc/proxbox/android-agent.env
 ExecStart=/usr/bin/node /opt/proxbox/proxbox-android-agent.mjs
 Restart=always
 RestartSec=5
+# Emulators are started detached and must OUTLIVE an agent restart. Without
+# this systemd kills the whole control group and every running device dies
+# whenever the agent is restarted or updated.
+KillMode=process
 # The agent talks to USB devices and (optionally) /dev/kvm, and nothing else.
 NoNewPrivileges=yes
 ProtectSystem=full

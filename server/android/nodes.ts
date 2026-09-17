@@ -78,8 +78,15 @@ function reconcilePhysical(node: NodeCapabilities): void {
   const registered = store.listDevices().filter(d => d.kind === 'physical' && d.node === node.node)
   const seen = new Set<string>()
 
+  const virtualSerials = new Set(
+    store.listDevices().filter(d => d.kind === 'virtual' && d.adb.serial).map(d => d.adb.serial)
+  )
   for (const report of node.physical) {
     seen.add(report.serial)
+    // An emulator we started for a virtual device also shows up over adb here.
+    // Registering it again as a "physical" device is the duplicate-device bug -
+    // skip anything that's an emulator serial or already owned by a virtual one.
+    if (report.serial.startsWith('emulator-') || virtualSerials.has(report.serial)) continue
     const existing = registered.find(d => d.adb.serial === report.serial)
     if (existing) {
       updateFromReport(existing, report)
